@@ -1,3 +1,8 @@
 [build]
   command = "npm run build"
   publish = "out"
+
+[build.environment]
+  NODE_ENV = "production"
+  NEXT_DISABLE_CACHE = "1"
+  NETLIFY_NEXT_PLUGIN_SKIP = "true"
