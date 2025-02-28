@@ -1,101 +1,290 @@
-import Image from "next/image";
+'use client';
+
+import { useState } from 'react';
+import { Toaster, toast } from 'react-hot-toast';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [bulkNumbers, setBulkNumbers] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const [mode, setMode] = useState('single'); // 'single' or 'bulk'
+  const [bulkResults, setBulkResults] = useState([]);
+  const [progress, setProgress] = useState(0);
+  const [totalChecks, setTotalChecks] = useState(0);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const checkPhoneNumber = async (number) => {
+    try {
+      const response = await fetch('/api/check-phone', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ phoneNumber: number }),
+      });
+
+      const data = await response.json();
+      
+      // Check either path structure - account for both formats
+      const isAccountFound = (data.continue_in_webview_ui?.path === '/signin/password') ||
+                            (data.continue_in_webview_ui?.path === "/signin/password");
+      
+      return {
+        number,
+        isAccountFound,
+        data
+      };
+    } catch (err) {
+      console.error(`Error checking ${number}:`, err);
+      return {
+        number,
+        isAccountFound: false,
+        error: err.message
+      };
+    }
+  };
+
+  const handleSingleCheck = async () => {
+    if (!phoneNumber || phoneNumber.length < 10) {
+      setError('Please enter a valid 10-digit phone number');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setResult(null);
+
+    try {
+      const result = await checkPhoneNumber(phoneNumber);
+      setResult(result.data);
+      
+      if (result.isAccountFound) {
+        toast.success('Pi Account found!');
+      } else {
+        toast.error('No Pi account found');
+      }
+    } catch (err) {
+      setError('Failed to check phone number. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkCheck = async () => {
+    if (!bulkNumbers.trim()) {
+      setError('Please enter at least one phone number');
+      return;
+    }
+
+    // Parse numbers (one per line)
+    const numbers = bulkNumbers
+      .split('\n')
+      .map(n => n.trim())
+      .filter(n => n.length >= 10);
+    
+    if (numbers.length === 0) {
+      setError('No valid phone numbers found');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setBulkResults([]);
+    setProgress(0);
+    setTotalChecks(numbers.length);
+    
+    toast.success(`Starting bulk check for ${numbers.length} numbers`);
+
+    // Process each number sequentially
+    const results = [];
+    for (let i = 0; i < numbers.length; i++) {
+      const number = numbers[i];
+      const result = await checkPhoneNumber(number);
+      results.push(result);
+      setProgress(i + 1);
+      setBulkResults([...results]); // Update results as we go
+      
+      // Short delay to prevent rate limiting
+      if (i < numbers.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    setLoading(false);
+    toast.success('Bulk check completed!');
+  };
+
+  // Check if account is found (for single mode)
+  const isAccountFound = (result?.continue_in_webview_ui?.path === '/signin/password') ||
+                        (result?.continue_in_webview_ui?.path === "/signin/password");
+
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center bg-gray-900 p-4">
+      <Toaster position="top-center" />
+      
+      <div className="w-full max-w-2xl bg-white rounded-lg shadow-lg overflow-hidden">
+        <div className="bg-blue-600 p-4">
+          <h1 className="text-2xl font-bold text-white text-center">Pi Account Checker</h1>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+        
+        <div className="p-6">
+          {/* Mode toggle */}
+          <div className="flex justify-center mb-6">
+            <div className="flex border border-gray-300 rounded-md overflow-hidden">
+              <button 
+                onClick={() => setMode('single')}
+                className={`px-4 py-2 ${mode === 'single' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}
+              >
+                Single Check
+              </button>
+              <button 
+                onClick={() => setMode('bulk')}
+                className={`px-4 py-2 ${mode === 'bulk' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}
+              >
+                Bulk Check
+              </button>
+            </div>
+          </div>
+
+          {/* Single mode */}
+          {mode === 'single' && (
+            <>
+              <div className="mb-4">
+                <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                  Phone Number (without country code)
+                </label>
+                <input
+                  type="text"
+                  id="phoneNumber"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="Enter 10 digit phone number"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                />
+              </div>
+              
+              <button
+                onClick={handleSingleCheck}
+                disabled={loading}
+                className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 font-medium"
+              >
+                {loading ? 'Checking...' : 'Check Phone Number'}
+              </button>
+              
+              {error && (
+                <div className="mt-4 p-3 bg-red-100 border border-red-200 text-red-700 rounded-md">
+                  {error}
+                </div>
+              )}
+              
+              {result && (
+                <div className={`mt-4 p-4 rounded-md ${isAccountFound ? 'bg-green-100 border border-green-200' : 'bg-red-100 border border-red-200'}`}>
+                  <h3 className={`text-lg font-semibold ${isAccountFound ? 'text-green-800' : 'text-red-800'}`}>
+                    {isAccountFound ? 'Pi Account Found!' : 'Unregistered'}
+                  </h3>
+                  <p className={`mt-1 ${isAccountFound ? 'text-green-700' : 'text-red-700'}`}>
+                    {isAccountFound 
+                      ? `Pi account created with ${phoneNumber}` 
+                      : 'No Pi Network account found for this phone number.'}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Bulk mode */}
+          {mode === 'bulk' && (
+            <>
+              <div className="mb-4">
+                <label htmlFor="bulkNumbers" className="block text-sm font-medium text-gray-700 mb-1">
+                  Phone Numbers (one per line, without country code)
+                </label>
+                <textarea
+                  id="bulkNumbers"
+                  value={bulkNumbers}
+                  onChange={(e) => setBulkNumbers(e.target.value)}
+                  placeholder="Enter phone numbers, one per line"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                  rows={5}
+                />
+              </div>
+              
+              <button
+                onClick={handleBulkCheck}
+                disabled={loading}
+                className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 font-medium"
+              >
+                {loading ? `Checking... (${progress}/${totalChecks})` : 'Check All Numbers'}
+              </button>
+              
+              {error && (
+                <div className="mt-4 p-3 bg-red-100 border border-red-200 text-red-700 rounded-md">
+                  {error}
+                </div>
+              )}
+              
+              {/* Progress bar */}
+              {loading && totalChecks > 0 && (
+                <div className="mt-4">
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div 
+                      className="bg-blue-600 h-2.5 rounded-full" 
+                      style={{ width: `${(progress / totalChecks) * 100}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-1 text-center">
+                    {progress} of {totalChecks} checked
+                  </p>
+                </div>
+              )}
+              
+              {/* Results table */}
+              {bulkResults.length > 0 && (
+                <div className="mt-6 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                          PHONE NUMBER
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                          STATUS
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {bulkResults.map((result, index) => (
+                        <tr key={index}>
+                          <td className="px-6 py-4 whitespace-nowrap text-gray-800 font-medium">
+                            {result.number}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {result.error ? (
+                              <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                Error: {result.error}
+                              </span>
+                            ) : result.isAccountFound ? (
+                              <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                Account Found
+                              </span>
+                            ) : (
+                              <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                                Unregistered
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </main>
   );
 }
