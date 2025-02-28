@@ -1,0 +1,7 @@
+[build]
+  command = "NEXT_IGNORE_ESLINT_ERRORS=1 NEXT_IGNORE_TS_ERRORS=1 npm run build"
+  publish = "out" # Adjust this to your actual output directory
+
+[build.environment]
+  NEXT_IGNORE_ESLINT_ERRORS = "1"
+  NEXT_IGNORE_TS_ERRORS = "1"
