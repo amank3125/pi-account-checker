@@ -4,8 +4,8 @@ export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
     
-    // Format the phone number with +91 prefix if needed
-    let phoneNumber = data.phoneNumber;
+    // Format and normalize the phone number
+    let phoneNumber = data.phoneNumber.trim();
     if (!phoneNumber.startsWith('+')) {
       phoneNumber = '+91' + phoneNumber;
     }
@@ -47,7 +47,6 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Original code below - uncomment when ready to use real API
     // Prepare the request body
     const requestBody = {
       continue_in_webview_ui_supported: true,
@@ -81,7 +80,6 @@ export async function POST(request: NextRequest) {
     }
     
     const responseData = await response.json();
-    console.log('API response:', JSON.stringify(responseData));
     
     return NextResponse.json(responseData);
   } catch (error) {
