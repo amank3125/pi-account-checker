@@ -3,16 +3,21 @@
 import { useState, useEffect } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import Sidebar from '../components/layout/Sidebar';
-import { saveAccount, getAllAccounts, removeAccount, getAccount, StoredAccount } from '@/lib/db';
+import { saveAccount, getAllAccounts, removeAccount, getAccount } from '@/lib/db';
 import Link from 'next/link';
-import { IconChevronRight, IconTrashX } from '@tabler/icons-react';
+import { IconTrashX } from '@tabler/icons-react';
 
-interface Account extends StoredAccount {}
+interface Account {
+  phone_number: string;
+  user_id: string;
+  username?: string;
+  credentials?: {
+    access_token: string;
+  };
+}
 
 export default function ManageAccounts() {
-  // Add new state
   const [isExistingAccount, setIsExistingAccount] = useState(false);
-  
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,16 +25,16 @@ export default function ManageAccounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loginStep, setLoginStep] = useState('idle'); // 'idle', 'checking', 'check-success', 'check-failed', 'obtaining', 'obtain-success', 'obtain-failed'
   const [cachedUserId, setCachedUserId] = useState<string | null>(null);
-  // Add success timer handler
+
   useEffect(() => {
     if (loginStep === 'obtain-success') {
       const timer = setTimeout(() => {
         setLoginStep('idle');
       }, 2000); // Hide after 2 seconds
-
       return () => clearTimeout(timer);
     }
   }, [loginStep]);
+
   // Load accounts from IndexedDB on component mount
   useEffect(() => {
     const loadAccounts = async () => {
@@ -43,11 +48,12 @@ export default function ManageAccounts() {
     };
     loadAccounts();
   }, []);
-  // Add phone number change handler
+
+  // Handle phone number change and check for existing account
   const handlePhoneNumberChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setPhoneNumber(value);
-    
+
     if (value.length >= 10) {
       const existingAccount = await getAccount(value);
       if (existingAccount) {
@@ -62,74 +68,54 @@ export default function ManageAccounts() {
       setError('');
     }
   };
+
   const handleLogin = async () => {
     if (!phoneNumber || !password) {
       setError('Please enter both phone number and password');
       return;
     }
-  
+
     setLoading(true);
     setError('');
-  
+
     try {
-      // Use cached check result if available for the same phone number
-      if (cachedUserId && loginStep === 'obtain-failed') {
-        setLoginStep('check-success');
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } else {
-        setLoginStep('checking');
-        // First step: Check if account exists
-        const checkResponse = await fetch('/api/check-phone', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            phoneNumber: phoneNumber,
-          }),
-        });
-    
-        const checkData = await checkResponse.json();
-    
-        if (!checkResponse.ok || !checkData.id) {
-          setLoginStep('check-failed');
-          setError('Account not found');
-          setCachedUserId(null);
-          setLoading(false);
-          return;
-        }
-  
-        setCachedUserId(checkData.id);
-        setLoginStep('check-success');
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      
-      // Second step: Obtain access token
-      setLoginStep('obtaining');
-      const response = await fetch('/api/auth/password_sign_in', {
+      // First step: Check if account exists and perform login
+      setLoginStep('checking');
+      const checkResponse = await fetch('/api/check-phone', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          phone_number: phoneNumber,
-          password: password,
-        }),
+        body: JSON.stringify({ phoneNumber, password }),
       });
-  
-      const data = await response.json();
-  
-      if (response.ok && data.credentials?.access_token) {
+      const loginData = await checkResponse.json();
+
+      if (checkResponse.ok && loginData?.credentials?.access_token) {
         setLoginStep('obtain-success');
         toast.success('Successfully logged in!');
-        toast.success('Successfully logged in!');
-        // Save account with access token to IndexedDB
+
+        // Optionally update cachedUserId from loginData if available
+        if (loginData.user_id) {
+          setCachedUserId(loginData.user_id);
+        }
+
+        // Get user data to save username
+        const userResponse = await fetch('/api/me', {
+          headers: {
+            'Authorization': `Bearer ${loginData.credentials.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        const userData = await userResponse.json();
+
+        // Save account with username
         await saveAccount({
           phone_number: phoneNumber,
-          user_id: cachedUserId!,
-          credentials: data.credentials
+          user_id: loginData.user_id || cachedUserId || '',
+          username: userData.profile?.username || userData.profile?.display_name,
+          credentials: loginData.credentials,
         });
-  
+
         setPassword('');
         setPhoneNumber('');
         setCachedUserId(null);
@@ -138,33 +124,17 @@ export default function ManageAccounts() {
         setAccounts(savedAccounts);
       } else {
         setLoginStep('obtain-failed');
-        // Handle specific status codes with more user-friendly messages
-        if (response.status === 401) {
+        if (checkResponse.status === 401) {
           setError('Invalid Password');
-        } else if (response.status === 502) {
+        } else if (checkResponse.status === 502) {
           setError('Gateway Error (502)');
-          return (
-            <div className="flex items-center space-x-2">
-              <span>Gateway Error (502)</span>
-              <button 
-                onClick={handleLogin}
-                className="p-1 rounded-full hover:bg-gray-100"
-              >
-                <svg className="h-4 w-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                </svg>
-              </button>
-            </div>
-          );
         } else {
-          setError(data.error || 'Failed to login');
+          setError(loginData.error || 'Failed to login');
         }
       }
     } catch (err) {
       setLoginStep('obtain-failed');
-      const errorMessage = 'Failed to login. Please try again.';
-      // Only set error state, remove toast
-      setError(errorMessage);
+      setError('Failed to login. Please try again.');
       console.error(err);
     } finally {
       setLoading(false);
@@ -180,7 +150,6 @@ export default function ManageAccounts() {
         },
         body: JSON.stringify({ phone_number: phoneNumber }),
       });
-
       // Remove from IndexedDB and update state
       await removeAccount(phoneNumber);
       setAccounts(accounts.filter(acc => acc.phone_number !== phoneNumber));
@@ -196,7 +165,6 @@ export default function ManageAccounts() {
       <Sidebar />
       <main className="flex-1 pl-64">
         <Toaster position="top-center" />
-        
         <div className="p-8">
           <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="bg-blue-600 p-4">
@@ -244,13 +212,11 @@ export default function ManageAccounts() {
                   >
                     {loading ? 'Logging in...' : 'Add Account'}
                   </button>
-                
-                  {/* Login Steps Indicator */}
                   {loginStep !== 'idle' && (
                     <div className="space-y-2 mt-4">
                       <div className={`flex items-center space-x-2 p-2 rounded ${
                         loginStep === 'checking' ? 'bg-blue-50' :
-                        (loginStep === 'check-success' || loginStep === 'obtaining' || loginStep === 'obtain-success' || loginStep === 'obtain-failed') ? 'bg-green-50' :
+                        (loginStep === 'check-success' || loginStep === 'obtaining' || loginStep === 'obtain-success' || loginStep === 'obtaining' || loginStep === 'obtain-failed') ? 'bg-green-50' :
                         loginStep === 'check-failed' ? 'bg-red-50' :
                         ''
                       }`}>
@@ -266,7 +232,7 @@ export default function ManageAccounts() {
                                loginStep === 'check-failed' ? 'Pi Account Not Found' :
                                'Checking Pi Account'}
                             </span>
-                            {['checking'].includes(loginStep) && (
+                            {loginStep === 'checking' && (
                               <svg className="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -306,7 +272,7 @@ export default function ManageAccounts() {
                                  loginStep === 'obtain-failed' ? 'Invalid Password' :
                                  'Obtaining Access Token'}
                               </span>
-                              {['obtaining'].includes(loginStep) && (
+                              {loginStep === 'obtaining' && (
                                 <svg className="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -338,13 +304,6 @@ export default function ManageAccounts() {
                       )}
                     </div>
                   )}
-                  {/* Remove this error block since errors are now in steps */}
-                  {/* {error && (
-                    <div className="p-3 bg-red-100 border border-red-200 text-red-700 rounded-md">
-                      {error}
-                    </div>
-                  )} */}
-                 
                 </div>
               </div>
               <div className="mt-8">

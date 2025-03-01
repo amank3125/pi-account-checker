@@ -5,11 +5,17 @@ import { IDBPDatabase, openDB } from 'idb';
 export interface StoredAccount {
   phone_number: string;
   user_id: string;
+  username?: string;
   credentials?: {
     access_token: string;
     token_type: string;
     expires_in: number;
     created_at: number;
+  };
+  cache?: {
+    pi?: CachedData;
+    user?: CachedData;
+    kyc?: CachedData;
   };
 }
 
@@ -82,10 +88,11 @@ export async function getAccount(phoneNumber: string): Promise<StoredAccount | u
   const account = await db.get(storeName, phoneNumber);
   return account;
 }
-
+// Remove the first saveAccount implementation and keep only this one
 export async function saveAccount(accountData: { 
   phone_number: string;
   user_id: string;
+  username?: string;
   credentials: {
     access_token: string;
     token_type: string;
@@ -98,26 +105,24 @@ export async function saveAccount(accountData: {
     return null;
   }
   
-  // Create account object with correct structure
-  const account = {
+  const account: StoredAccount = {
     phone_number: accountData.phone_number,
     user_id: accountData.user_id,
-    access_token: accountData.credentials.access_token,
-    credentials: accountData.credentials
+    username: accountData.username,
+    credentials: accountData.credentials,
+    cache: {}
   };
+  
   const db = await dbPromise;
   const result = await (db as IDBPDatabase).put(storeName, account);
-  
-  // Verify saved data
-return result;
+  console.log('Saved account:', account);
+  return result;
 }
-
 export async function getAllAccounts(): Promise<StoredAccount[]> {
   if (!dbPromise) return [];
   const db = await dbPromise as IDBPDatabase;
   return db.getAll(storeName);
 }
-
 export async function removeAccount(phoneNumber: string) {
   if (!dbPromise) return null;
   const db = await dbPromise as IDBPDatabase;
@@ -133,6 +138,7 @@ export async function validateAccount(phoneNumber: string): Promise<boolean> {
   const isValid = 
     account.phone_number && 
     account.user_id && 
-    account.credentials.access_token;  
+    account.credentials?.access_token;
+  
   return Boolean(isValid);
 }
