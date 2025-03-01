@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getAccount } from '@/lib/db';
+import { getAccount, setCacheData, getCacheData } from '@/lib/db';
 import Sidebar from '../../components/layout/Sidebar';
 import { useParams } from 'next/navigation';
 import { IconCheck, IconX } from '@tabler/icons-react';
@@ -50,6 +50,14 @@ export default function AccountPage() {
   });
   useEffect(() => {
     const fetchData = async () => {
+      // Try to get data from cache first
+      const cachedPiData = await getCacheData(params.account as string, 'pi');
+      const cachedUserData = await getCacheData(params.account as string, 'user');
+      const cachedKycData = await getCacheData(params.account as string, 'kyc');
+
+      if (cachedPiData) setPiData(cachedPiData as PiData);
+      if (cachedUserData) setUserData(cachedUserData as UserData);
+      if (cachedKycData) setKycData(cachedKycData as KycData);
       try {
         console.log('Fetching account for:', params.account);
         const account = await getAccount(params.account as string);
@@ -97,6 +105,8 @@ export default function AccountPage() {
 
           const piData = await piResponse.json();
           setPiData(piData);
+          // Cache the Pi data
+          await setCacheData(params.account as string, 'pi', piData);
         } catch (err: unknown) {
           console.error('Pi data error:', err);
           setErrors(prev => ({ ...prev, pi: 'Failed to load Pi data' }));
@@ -114,6 +124,8 @@ export default function AccountPage() {
           }
           const userData = await userResponse.json();
           setUserData(userData);
+          // Cache the user data
+          await setCacheData(params.account as string, 'user', userData);
         } catch (err: unknown) {
           console.error('User data error:', err);
           setErrors(prev => ({ ...prev, user: 'Failed to load user data' }));
@@ -131,6 +143,8 @@ export default function AccountPage() {
           }
           const kycData = await kycResponse.json();
           setKycData(kycData);
+          // Cache the KYC data
+          await setCacheData(params.account as string, 'kyc', kycData);
         } catch (err: unknown) {
           console.error('KYC data error:', err);
           setErrors(prev => ({ ...prev, kyc: 'Failed to load KYC data' }));

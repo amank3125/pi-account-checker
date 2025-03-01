@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { getAllAccounts, StoredAccount, getCacheData } from '@/lib/db';
 
 interface AccountWithUsername extends StoredAccount {
+  balance: number;
   username?: string;
 }
 
@@ -21,17 +22,26 @@ export default function Sidebar() {
       const accountsWithUsernames = await Promise.all(
         savedAccounts.map(async (account) => {
           const userData = await getCacheData(account.phone_number, 'user');
+          const piData = await getCacheData(account.phone_number, 'pi');
           let username = account.username; // Use stored username if available
+          let balance = null;
           
           // If no stored username, try to get from cache
           if (!username && userData && typeof userData === 'object') {
             const userDataObj = userData as { profile?: { username?: string; display_name?: string } };
             username = userDataObj.profile?.username || userDataObj.profile?.display_name;
           }
+
+          // Get balance from cache if available
+          if (piData && typeof piData === 'object') {
+            const piDataObj = piData as { balance?: number };
+            balance = piDataObj.balance;
+          }
           
           return {
             ...account,
-            username: username || account.phone_number // Fallback to phone number if no username
+            username: username || account.phone_number, // Fallback to phone number if no username
+            balance
           };
         })
       );
@@ -72,9 +82,9 @@ export default function Sidebar() {
                 className="p-2 ml-1 rounded-md hover:bg-gray-700"
               >
                 {isAccountsOpen ? (
-                  <IconChevronDown className="w-4 h-4" />
+                  <IconChevronDown className="w-4 w-4" />
                 ) : (
-                  <IconChevronRight className="w-4 h-4" />
+                  <IconChevronRight className="w-4 w-4" />
                 )}
               </button>
             )}
@@ -82,7 +92,7 @@ export default function Sidebar() {
           
           {isAccountsOpen && accounts.length > 0 && (
             <div className="ml-6 mt-2 space-y-1">
-              {accounts.map((account) => (
+              {accounts.map((account, index) => (
                 <Link
                   key={account.phone_number}
                   href={`/accounts/${account.phone_number}`}
@@ -92,13 +102,28 @@ export default function Sidebar() {
                       : 'hover:bg-gray-700'
                   }`}
                 >
-                  @{account.username || account.phone_number}
+                  <div className="flex justify-between items-center">
+                    <span><span className="text-gray-400 mr-2">{index + 1}.</span>{account.username || account.phone_number}</span>
+                    {account.balance !== null && (
+                      <span className="text-xs opacity-75">{account.balance?.toFixed(4)} π</span>
+                    )}
+                  </div>
                 </Link>
               ))}
             </div>
           )}
         </div>
       </nav>
+      {accounts.length > 0 && (
+        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gray-900 border-t border-gray-700">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-400">Total Balance:</span>
+            <span className="text-sm font-medium">
+              {accounts.reduce((sum, account) => sum + (account.balance || 0), 0).toFixed(4)} π
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
