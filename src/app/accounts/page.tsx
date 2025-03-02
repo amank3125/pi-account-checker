@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import Sidebar from '../components/layout/Sidebar';
-import { saveAccount, getAllAccounts, removeAccount, getAccount } from '@/lib/db';
+import { saveAccount, getAllAccounts, removeAccount, getAccount, getCacheData } from '@/lib/db';
 import Link from 'next/link';
 import { IconTrashX } from '@tabler/icons-react';
 
@@ -52,7 +52,20 @@ export default function ManageAccounts() {
     const loadAccounts = async () => {
       try {
         const savedAccounts = await getAllAccounts();
-        setAccounts(savedAccounts || []);
+        const accountsWithUsernames = await Promise.all(
+          savedAccounts.map(async (account) => {
+            const userData = await getCacheData(account.phone_number, 'user');
+            if (userData && typeof userData === 'object' && 'profile' in userData) {
+              const profile = (userData as { profile: { username?: string; display_name?: string } }).profile;
+              return {
+                ...account,
+                username: profile.username || profile.display_name || account.phone_number
+              };
+            }
+            return { ...account, username: account.phone_number };
+          })
+        );
+        setAccounts(accountsWithUsernames || []);
       } catch (err) {
         console.error('Failed to load accounts:', err);
         setAccounts([]);
@@ -92,17 +105,38 @@ export default function ManageAccounts() {
     setError('');
 
     try {
-      // Step 1: Check phone and attempt login
+      // Step 1: Check if account exists
       setLoginStep('checking');
       const checkResponse = await fetch('/api/check-phone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneNumber, password }),
+        body: JSON.stringify({ phoneNumber }),
       });
-      const loginData = await checkResponse.json();
+      const checkData = await checkResponse.json();
 
-      // If credentials are found
-      if (checkResponse.ok && loginData?.credentials?.access_token) {
+      // If account exists, proceed with login
+      if (checkResponse.ok && checkData?.continue_in_webview_ui?.path === '/signin/password') {
+        setLoginStep('obtaining');
+        
+        // Step 2: Attempt login
+        const loginResponse = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone_number: phoneNumber, password }),
+        });
+        const loginData = await loginResponse.json();
+
+        if (!loginResponse.ok) {
+          setLoginStep('obtain-failed');
+          if (loginResponse.status === 401) {
+            setError('Invalid Password');
+          } else if (loginResponse.status === 502) {
+            setError('Gateway Error (502)');
+          } else {
+            setError(loginData.error || 'Failed to login');
+          }
+          return;
+        }
         setLoginStep('obtain-success');
         toast.success('Successfully logged in!');
 
@@ -143,7 +177,7 @@ export default function ManageAccounts() {
         } else if (checkResponse.status === 502) {
           setError('Gateway Error (502)');
         } else {
-          setError(loginData.error || 'Failed to login');
+          setError(checkData?.error || 'Failed to login');
         }
       }
     } catch (err) {
@@ -203,7 +237,7 @@ export default function ManageAccounts() {
       </div>
 
       {/* Main content area */}
-      <main className="flex-1 md:pl-64">
+      <main className="flex-1">
         <Toaster position="top-center" />
         
         <div className="p-8">
@@ -505,9 +539,14 @@ export default function ManageAccounts() {
                     >
                       <Link
                         href={`/accounts/${account.phone_number}`}
-                        className="flex font-medium text-gray-800 hover:text-blue-600"
+                        className="flex flex-col"
                       >
-                        {account.phone_number}
+                        <span className="font-medium text-gray-800 hover:text-blue-600">
+                          @{account.username}
+                        </span>
+                        <span className="text-[12px] text-gray-500 pl-4">
+                          {account.phone_number}
+                        </span>
                       </Link>
                       <button
                         onClick={() => handleLogout(account.phone_number)}

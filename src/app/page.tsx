@@ -8,7 +8,7 @@ import Sidebar from './components/layout/Sidebar';
 interface CheckResult {
   number: string;
   isAccountFound: boolean;
-  data?: any;
+  data?: object;
   error?: string;
 }
 
@@ -17,7 +17,7 @@ export default function Home() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [bulkNumbers, setBulkNumbers] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<unknown>(null);
   const [error, setError] = useState('');
   const [mode, setMode] = useState('single'); // 'single' or 'bulk'
   const [bulkResults, setBulkResults] = useState<CheckResult[]>([]);
@@ -140,7 +140,9 @@ export default function Home() {
   };
 
   // Helper to see if single check found an account
-  const isAccountFound = result?.continue_in_webview_ui?.path === '/signin/password';
+  const isAccountFound = result && typeof result === 'object' && 'continue_in_webview_ui' in result && 
+    result.continue_in_webview_ui && typeof result.continue_in_webview_ui === 'object' && 
+    'path' in result.continue_in_webview_ui && result.continue_in_webview_ui.path === '/signin/password';
 
   return (
     <div className="flex flex-col md:flex-row min-h-screen">
@@ -172,7 +174,7 @@ export default function Home() {
       </div>
 
       {/* Main content with padding on md+ to accommodate sidebar */}
-      <main className="flex-1 md:pl-64">
+      <main className="flex-1">
         <Toaster position="top-center" />
 
         <div className="p-8">

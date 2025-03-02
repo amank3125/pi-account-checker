@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { IconSearch, IconUsers, IconChevronDown, IconChevronRight, IconChevronLeft } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
 import { getAllAccounts, StoredAccount, getCacheData } from '@/lib/db';
+import { IconCurrencyDollar } from '@tabler/icons-react';
 
 interface AccountWithUsername extends StoredAccount {
   balance: number;
@@ -20,6 +21,27 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [accounts, setAccounts] = useState<AccountWithUsername[]>([]);
   const [isAccountsOpen, setIsAccountsOpen] = useState(true);
+  const [piPrice, setPiPrice] = useState<number | null>(null);
+
+  // Fetch Pi price
+  useEffect(() => {
+    const fetchPiPrice = async () => {
+      try {
+        const response = await fetch('/api/price');
+        const data = await response.json();
+        if (data.price) {
+          setPiPrice(data.price);
+        }
+      } catch (error) {
+        console.error('Failed to fetch Pi price:', error);
+      }
+    };
+
+    fetchPiPrice();
+    // Refresh price every 5 minutes
+    const interval = setInterval(fetchPiPrice, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const loadAccounts = async () => {
@@ -60,9 +82,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       {/* Sidebar container with slide-in effect on mobile */}
       <div
         className={`fixed top-0 left-0 z-50 h-screen w-64 bg-gray-800 text-white transform
-                    transition-transform duration-300 ease-in-out overflow-y-auto
+                    transition-transform duration-300 ease-in-out
                     ${isOpen ? 'translate-x-0' : '-translate-x-full'}
-                    md:static md:translate-x-0 md:h-screen`}
+                    md:static md:translate-x-0 md:h-screen md:sticky md:top-0`}
       >
         {/* Close button (visible on mobile only) */}
         <button
@@ -77,8 +99,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           Pi Account Checker
         </div>
 
-        {/* Nav links */}
-        <nav className="space-y-2 px-4">
+        {/* Nav links with custom scrollbar */}
+        <nav className="space-y-2 px-4 overflow-y-auto h-[calc(100vh-180px)] scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-full">
           <Link
             href="/"
             className={`block p-3 rounded-md transition-colors ${
@@ -116,7 +138,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             </div>
             
             {isAccountsOpen && accounts.length > 0 && (
-              <div className="ml-6 mt-2 space-y-1">
+              <div className="ml-6 mt-2 space-y-1 overflow-y-auto max-h-[50vh] scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-full">
                 {accounts.map((account, index) => (
                   <Link
                     key={account.phone_number}
@@ -151,9 +173,17 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           <div className="absolute bottom-0 left-0 right-0 p-4 bg-gray-900 border-t border-gray-700">
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-400">Total Balance:</span>
-              <span className="text-sm font-medium">
-                {accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0).toFixed(4)} π
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="text-sm font-medium">
+                  {accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0).toFixed(4)} π
+                </span>
+                {piPrice && (
+                  <span className="text-xs text-gray-500 flex items-center">
+                    <IconCurrencyDollar className="w-3 h-3 mr-0.5" />
+                    {(accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0) * piPrice).toFixed(2)}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}

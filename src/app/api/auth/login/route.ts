@@ -19,8 +19,8 @@ export async function POST(request: NextRequest) {
       continue_in_webview_ui_supported: true
     };
     
-    // Call the Pi login API
-    const response = await fetch('https://socialchain.app/api/login', {
+    // Call the Pi password sign-in API
+    const response = await fetch('https://socialchain.app/api/password_sign_in', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -49,8 +49,7 @@ export async function POST(request: NextRequest) {
     const cookieStore = cookies();
     const accountData = {
       phone_number: phoneNumber,
-      access_token: responseData.access_token,
-      user_id: responseData.user_id
+      credentials: responseData.credentials
     };
     
     // Store account data in an encrypted cookie
@@ -60,16 +59,16 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 // 7 days
+      maxAge: responseData.credentials.expires_in
     });
     
     return NextResponse.json({
       success: true,
       message: 'Login successful',
       user: {
-        phone_number: phoneNumber,
-        user_id: responseData.user_id
-      }
+        phone_number: phoneNumber
+      },
+      credentials: responseData.credentials
     });
   } catch (error) {
     console.error('Login Error:', error);

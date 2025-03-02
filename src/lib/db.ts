@@ -33,10 +33,28 @@ if (typeof window !== 'undefined') {
     },
   });
 }
+// Cache configuration
+const CACHE_CONFIG = {
+  pi: {
+    lifetime: 30 * 60 * 1000, // 30 minutes for Pi balance
+    refreshInterval: 15 * 60 * 1000 // Refresh every 15 minutes
+  },
+  user: {
+    lifetime: 24 * 60 * 60 * 1000, // 24 hours for user data
+    refreshInterval: 12 * 60 * 60 * 1000 // Refresh every 12 hours
+  },
+  kyc: {
+    lifetime: 24 * 60 * 60 * 1000, // 24 hours for KYC status
+    refreshInterval: 12 * 60 * 60 * 1000 // Refresh every 12 hours
+  }
+};
+
 // Add these interfaces
 export interface CachedData {
   data: unknown;
   timestamp: number;
+  lastRefreshAttempt?: number;
+  isStale?: boolean;
 }
 
 export interface AccountCache {
@@ -54,7 +72,9 @@ export async function setCacheData(phoneNumber: string, type: 'pi' | 'user' | 'k
   account.cache = account.cache || {};
   account.cache[type] = {
     data,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    lastRefreshAttempt: Date.now(),
+    isStale: false
   };
 
   return db.put(storeName, account);
@@ -66,9 +86,34 @@ export async function getCacheData(phoneNumber: string, type: 'pi' | 'user' | 'k
   if (!account?.cache?.[type]) return null;
 
   const cache = account.cache[type];
-  const isCacheValid = Date.now() - cache.timestamp < 15 * 60 * 1000; // 15 minutes
-  
-  return isCacheValid ? cache.data : null;
+  const now = Date.now();
+  const age = now - cache.timestamp;
+  const timeSinceLastRefresh = now - (cache.lastRefreshAttempt || 0);
+
+  // Check if it's time to refresh the cache
+  if (timeSinceLastRefresh >= CACHE_CONFIG[type].refreshInterval) {
+    // Mark the cache as stale but still return the data
+    if (!cache.isStale) {
+      cache.isStale = true;
+      await db.put(storeName, account);
+    }
+  }
+
+  // Return cached data if within lifetime, even if marked as stale
+  if (age < CACHE_CONFIG[type].lifetime) {
+    return cache.data;
+  }
+
+  // If beyond lifetime but we have data, mark as stale but still return it
+  if (cache.data) {
+    if (!cache.isStale) {
+      cache.isStale = true;
+      await db.put(storeName, account);
+    }
+    return cache.data;
+  }
+
+  return null;
 }
 
 export async function clearCache(phoneNumber: string) {
@@ -78,6 +123,18 @@ export async function clearCache(phoneNumber: string) {
 
   account.cache = {};
   return db.put(storeName, account);
+}
+
+export async function refreshCache(phoneNumber: string, type: 'pi' | 'user' | 'kyc'): Promise<void> {
+  const db = await dbPromise as IDBPDatabase;
+  const account = await db.get(storeName, phoneNumber);
+  if (!account?.cache?.[type]) return;
+
+  const cache = account.cache[type];
+  cache.lastRefreshAttempt = Date.now();
+  cache.isStale = false;
+  
+  await db.put(storeName, account);
 }
 export async function getAccount(phoneNumber: string): Promise<StoredAccount | undefined> {
   if (!dbPromise) {
@@ -115,7 +172,6 @@ export async function saveAccount(accountData: {
   
   const db = await dbPromise;
   const result = await (db as IDBPDatabase).put(storeName, account);
-  console.log('Saved account:', account);
   return result;
 }
 export async function getAllAccounts(): Promise<StoredAccount[]> {

@@ -282,7 +282,7 @@ export default function AccountPage() {
       </div>
 
       {/* Main content with padding on md+ to accommodate sidebar */}
-      <main className="flex-1 md:pl-64 bg-white">
+      <main className="flex-1 bg-white">
         <div className="p-8">
           <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="bg-blue-600 p-4">
