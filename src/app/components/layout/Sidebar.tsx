@@ -9,6 +9,7 @@ import { IconCurrencyDollar } from '@tabler/icons-react';
 
 interface AccountWithUsername extends StoredAccount {
   balance: number;
+  balance_ready?: number;
   username?: string;
 }
 
@@ -55,8 +56,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         savedAccounts.map(async (account) => {
           const userData = await getCacheData(account.phone_number, 'user');
           const piData = await getCacheData(account.phone_number, 'pi');
+          const mainnetData = await getCacheData(account.phone_number, 'mainnet');
+          
           let username = account.username;
           let balance = 0;
+          let balance_ready = 0;
           let mining_status = 'Inactive';
       
           if (!username && userData && typeof userData === 'object') {
@@ -69,16 +73,26 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             balance = piDataObj.balance || 0;
             mining_status = piDataObj.mining_status?.is_mining ? 'Active' : 'Inactive';
           }
+          
+          if (mainnetData && typeof mainnetData === 'object') {
+            const mainnetDataObj = mainnetData as { balance_ready?: number };
+            balance_ready = mainnetDataObj.balance_ready || 0;
+          }
       
           return {
             ...account,
             username: username || account.phone_number,
             balance,
+            balance_ready,
             mining_status
           };
         })
       );
-      setAccounts(accountsWithUsernames || []);
+      // Sort accounts by balance_ready (largest first)
+      const sortedAccounts = [...accountsWithUsernames].sort((a, b) => 
+        (b.balance_ready || 0) - (a.balance_ready || 0)
+      );
+      setAccounts(sortedAccounts || []);
     };
     
     // Initial load
@@ -110,7 +124,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   return (
     <>
-      {/* Sidebar container with slide-in effect on mobile */}
       {/* Collapsed sidebar button - only visible when sidebar is collapsed on desktop */}
       {!isExpanded && (
         <div className="fixed top-16 left-0 z-40 hidden md:flex md:items-center md:justify-center md:w-20 md:mt-4">
@@ -133,18 +146,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       >
         {/* Toggle button - visible in expanded desktop mode */}
         <div className="absolute top-5 -right-2 z-50 flex space-x-2">
-          
-          {/* Desktop collapse button - only visible in expanded mode */}
           <button
-    className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 shadow-md"
-    onClick={toggleSidebar}
-    aria-label={isExpanded ? "Collapse sidebar" : "Expand sidebar"}
-  >
-    {isExpanded ? 
-      <IconChevronLeft className="w-5 h-5 text-white" /> : 
-      <IconChevronRight className="w-5 h-5 text-white" />
-    }
-  </button>
+            className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 shadow-md"
+            onClick={toggleSidebar}
+            aria-label={isExpanded ? "Collapse sidebar" : "Expand sidebar"}
+          >
+            {isExpanded ? 
+              <IconChevronLeft className="w-5 h-5 text-white" /> : 
+              <IconChevronRight className="w-5 h-5 text-white" />
+            }
+          </button>
         </div>
       
         {/* Header */}
@@ -215,9 +226,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                         <span className="text-gray-400 mr-1 flex-shrink-0">{index + 1}.</span>
                         <span className="truncate">{account.username || account.phone_number}</span>
                       </div>
-                      {account.balance !== null && (
+                      {account.balance_ready !== undefined && (
                         <span className="flex-shrink-0 opacity-75 text-xs whitespace-nowrap">
-                          {account.balance?.toFixed(2)} π
+                          {account.balance_ready?.toFixed(2)} π
                         </span>
                       )}
                     </div>
@@ -233,15 +244,15 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           <div className="absolute bottom-0 left-0 right-0 p-3 bg-gray-900 border-t border-gray-700">
             {isExpanded ? (
               <div className="flex justify-between items-center gap-1">
-                <span className="text-xs md:text-sm text-gray-400">Total:</span>
+                <span className="text-xs md:text-sm text-gray-400">Ready:</span>
                 <div className="flex flex-col items-end">
                   <span className="text-xs md:text-sm font-medium whitespace-nowrap">
-                    {accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0).toFixed(2)} π
+                    {accounts.reduce((sum, acc) => sum + (acc.balance_ready || 0), 0).toFixed(2)} π
                   </span>
                   {piPrice && (
                     <span className="text-xs text-gray-500 flex items-center whitespace-nowrap">
                       <IconCurrencyDollar className="w-3 h-3 mr-0.5" />
-                      {(accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0) * piPrice).toFixed(2)}
+                      {(accounts.reduce((sum, acc) => sum + (acc.balance_ready || 0), 0) * piPrice).toFixed(2)}
                     </span>
                   )}
                 </div>
@@ -250,7 +261,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               <div className="flex justify-center items-center">
                 <IconCurrencyDollar className="w-4 h-4 text-gray-400 mr-1" />
                 <span className="text-xs font-medium">
-                  {accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0).toFixed(0)}
+                  {accounts.reduce((sum, acc) => sum + (acc.balance_ready || 0), 0).toFixed(0)}
                 </span>
               </div>
             )}
