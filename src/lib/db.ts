@@ -16,6 +16,7 @@ export interface StoredAccount {
     pi?: CachedData;
     user?: CachedData;
     kyc?: CachedData;
+    mainnet?: CachedData;
   };
 }
 
@@ -46,6 +47,10 @@ const CACHE_CONFIG = {
   kyc: {
     lifetime: 24 * 60 * 60 * 1000, // 24 hours for KYC status
     refreshInterval: 12 * 60 * 60 * 1000 // Refresh every 12 hours
+  },
+  mainnet: {
+    lifetime: 30 * 60 * 1000, // 30 minutes for mainnet balance
+    refreshInterval: 15 * 60 * 1000 // Refresh every 15 minutes
   }
 };
 
@@ -61,6 +66,7 @@ export interface AccountCache {
   pi?: CachedData;
   user?: CachedData;
   kyc?: CachedData;
+  mainnet?: CachedData;
 }
 
 // Add cache functions

@@ -24,6 +24,9 @@ interface Account {
   kyc_status?: string;
   kyc_detailed_status?: string;
   referred_by?: string;
+  pending_balance?: number;
+  balance_ready?: number;
+  total_pushed_balance?: number;
   credentials?: {
     access_token: string;
   };
@@ -51,20 +54,23 @@ export default function ManageAccounts() {
     phone_number: true,
     balance: true,
     mining_status: true,
-    completed_sessions: true,
+    completed_sessions: false,
     display_name: false,
     phone_verification: false,
     facebook_verified: false,
     password_status: false,
     trusted_email: false,
     email_verified: false,
-    kyc_eligible: true,
-    kyc_status: true,
+    kyc_eligible: false,
+    kyc_status: false,
     kyc_detailed_status: false,
     referred_by: false,
+    pending_balance: true,
+    balance_ready: true,
+    total_pushed_balance: true,
     actions: true
   };
-
+  
   const [columnVisibility, setColumnVisibility] = useState(() => {
     if (typeof window === 'undefined') return defaultColumnVisibility;
     
@@ -76,7 +82,7 @@ export default function ManageAccounts() {
       return defaultColumnVisibility;
     }
   });
-
+  
   // Handle sorting when a header is clicked
   const handleSort = (column: string) => {
     if (sortColumn === column) {
@@ -88,11 +94,11 @@ export default function ManageAccounts() {
       setSortDirection('asc');
     }
   };
-
+  
   // Compute sorted accounts based on sort state
   const sortedAccounts = useMemo(() => {
     if (!sortColumn) return accounts;
-
+  
     return [...accounts].sort((a, b) => {
       // Handle specific columns as per requirements
       if (sortColumn === 'username') {
@@ -147,7 +153,7 @@ export default function ManageAccounts() {
   useEffect(() => {
     localStorage.setItem('columnVisibility', JSON.stringify(columnVisibility));
   }, [columnVisibility]);
-
+  
   // Add click outside handler
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -156,8 +162,7 @@ export default function ManageAccounts() {
         dropdown.classList.add('hidden');
       }
     }
-
-    document.addEventListener('mousedown', handleClickOutside);
+  document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
@@ -167,12 +172,11 @@ export default function ManageAccounts() {
   const [loginStep, setLoginStep] = useState('idle'); 
   // 'idle', 'checking', 'check-success', 'check-failed',
   // 'obtaining', 'obtain-success', 'obtain-failed'
-
   const [cachedUserId, setCachedUserId] = useState<string | null>(null);
-
+  
   // New: open/close sidebar on mobile
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
+  
   // Reset login step after success
   useEffect(() => {
     if (loginStep === 'obtain-success') {
@@ -182,7 +186,7 @@ export default function ManageAccounts() {
       return () => clearTimeout(timer);
     }
   }, [loginStep]);
-
+  
   // Load accounts from IndexedDB with Pi data
   useEffect(() => {
     const loadAccounts = async () => {
@@ -195,7 +199,7 @@ export default function ManageAccounts() {
             let username = account.username;
             let balance = 0;
             let mining_status = 'Inactive';
-
+  
             let display_name = '';
             let phone_verification = '';
             let facebook_verified = false;
@@ -235,7 +239,7 @@ export default function ManageAccounts() {
               kyc_eligible = userDataObj.profile?.kyc_eligible || false;
               referred_by = userDataObj.referring_user?.display_name || '';
             }
-
+  
             if (piData && typeof piData === 'object') {
               const piDataObj = piData as { 
                 balance?: number; 
@@ -256,7 +260,7 @@ export default function ManageAccounts() {
               kyc_status = kycDataObj.status || '';
               kyc_detailed_status = kycDataObj.detailed_status || '';
             }
-
+  
             return {
               ...account,
               username: username || account.phone_number,
@@ -284,12 +288,12 @@ export default function ManageAccounts() {
     };
     loadAccounts();
   }, []);
-
+  
   // Check for existing account on phone number change
   const handlePhoneNumberChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setPhoneNumber(value);
-
+  
     if (value.length >= 10) {
       const existingAccount = await getAccount(value);
       if (existingAccount) {
@@ -304,17 +308,17 @@ export default function ManageAccounts() {
       setError('');
     }
   };
-
+  
   // Attempt to log in and save account
   const handleLogin = async () => {
     if (!phoneNumber || !password) {
       setError('Please enter both phone number and password');
       return;
     }
-
+  
     setLoading(true);
     setError('');
-
+  
     try {
       // Step 1: Check if account exists
       setLoginStep('checking');
@@ -324,7 +328,7 @@ export default function ManageAccounts() {
         body: JSON.stringify({ phoneNumber }),
       });
       const checkData = await checkResponse.json();
-
+  
       // If account exists, proceed with login
       if (checkResponse.ok && checkData?.continue_in_webview_ui?.path === '/signin/password') {
         setLoginStep('obtaining');
@@ -336,7 +340,7 @@ export default function ManageAccounts() {
           body: JSON.stringify({ phone_number: phoneNumber, password }),
         });
         const loginData = await loginResponse.json();
-
+  
         if (!loginResponse.ok) {
           setLoginStep('obtain-failed');
           if (loginResponse.status === 401) {
@@ -350,12 +354,12 @@ export default function ManageAccounts() {
         }
         setLoginStep('obtain-success');
         toast.success('Successfully logged in!');
-
+  
         // Optionally store user_id
         if (loginData.user_id) {
           setCachedUserId(loginData.user_id);
         }
-
+  
         // Step 2: Fetch user data to store username
         const userResponse = await fetch('/api/me', {
           headers: {
@@ -364,7 +368,7 @@ export default function ManageAccounts() {
           },
         });
         const userData = await userResponse.json();
-
+  
         // Save account to IndexedDB
         await saveAccount({
           phone_number: phoneNumber,
@@ -372,12 +376,12 @@ export default function ManageAccounts() {
           username: userData.profile?.username || userData.profile?.display_name,
           credentials: loginData.credentials,
         });
-
+  
         // Clear form
         setPassword('');
         setPhoneNumber('');
         setCachedUserId(null);
-
+  
         // Reload accounts
         const savedAccounts = await getAllAccounts();
         setAccounts(savedAccounts);
@@ -399,7 +403,7 @@ export default function ManageAccounts() {
       setLoading(false);
     }
   };
-
+  
   // Remove an account
   const handleLogout = async (phoneNum: string) => {
     try {
@@ -417,7 +421,7 @@ export default function ManageAccounts() {
       console.error(err);
     }
   };
-
+  
   // Helper function to render sort icons
   const renderSortIcon = (column: string) => {
     if (sortColumn !== column) {
@@ -427,7 +431,7 @@ export default function ManageAccounts() {
       <IconChevronUp className="w-4 h-4 inline-block ml-1" /> : 
       <IconChevronDown className="w-4 h-4 inline-block ml-1" />;
   };
-
+  
   // Helper function to create sortable header cells
   const renderSortableHeader = (column: string, label: string) => {
     return (
@@ -443,7 +447,7 @@ export default function ManageAccounts() {
       </th>
     );
   };
-
+  
   return (
     <div className="flex flex-col md:flex-row min-h-screen">
       {/* Sidebar */}
@@ -451,7 +455,7 @@ export default function ManageAccounts() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
-
+  
       {/* Mobile top bar */}
       <div className="md:hidden bg-blue-600 text-white p-4 flex justify-between items-center">
         <h1 className="text-xl font-bold">Manage Accounts</h1>
@@ -472,7 +476,7 @@ export default function ManageAccounts() {
           </svg>
         </button>
       </div>
-
+  
       {/* Main content area */}
       <main className="flex-1">
         <Toaster position="top-center" />
@@ -529,7 +533,7 @@ export default function ManageAccounts() {
                   >
                     {loading ? 'Logging in...' : 'Add Account'}
                   </button>
-
+  
                   {/* Login Steps / Status */}
                   {loginStep !== 'idle' && (
                     <div className="space-y-2 mt-4">
@@ -577,7 +581,7 @@ export default function ManageAccounts() {
                                 ? 'Pi Account Not Found'
                                 : 'Checking Pi Account'}
                             </span>
-
+  
                             {loginStep === 'checking' && (
                               <svg
                                 className="animate-spin h-4 w-4 text-blue-600"
@@ -626,7 +630,7 @@ export default function ManageAccounts() {
                           </div>
                         </div>
                       </div>
-
+  
                       {/* Obtaining Access Token? */}
                       {(loginStep === 'check-success' ||
                         loginStep === 'obtaining' ||
@@ -669,7 +673,7 @@ export default function ManageAccounts() {
                                   ? 'Invalid Password'
                                   : 'Obtaining Access Token'}
                               </span>
-
+  
                               {loginStep === 'obtaining' && (
                                 <svg
                                   className="animate-spin h-4 w-4 text-blue-600"
@@ -832,7 +836,11 @@ export default function ManageAccounts() {
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             <div className="flex items-center space-x-2">
                               <span className="text-gray-400">{index + 1}.</span>
-                              <Link href={`/accounts/${account.phone_number}`} className="text-blue-600 hover:text-blue-800">
+                              <Link 
+                                href={`/accounts/${account.phone_number}`} 
+                                className="text-blue-600 hover:text-blue-800 block max-w-[120px] overflow-hidden text-ellipsis"
+                                title={account.username || account.phone_number}
+                              >
                                 {account.username || account.phone_number}
                               </Link>
                             </div>
