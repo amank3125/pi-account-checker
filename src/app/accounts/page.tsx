@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import Sidebar from '../components/layout/Sidebar';
-import { saveAccount, getAllAccounts, removeAccount, getAccount, getCacheData } from '@/lib/db';
+import { saveAccount, getAllAccounts, removeAccount, getAccount, getCacheData, setCacheData } from '@/lib/db';
 import Link from 'next/link';
 import { IconColumns, IconTrashX, IconChevronUp, IconChevronDown } from '@tabler/icons-react';
 
@@ -24,6 +24,7 @@ interface Account {
   kyc_status?: string;
   kyc_detailed_status?: string;
   referred_by?: string;
+  // New mainnet balance fields
   pending_balance?: number;
   balance_ready?: number;
   total_pushed_balance?: number;
@@ -32,11 +33,36 @@ interface Account {
   };
 }
 
+// Function to fetch mainnet balance
+async function fetchMainnetBalance(accessToken: string) {
+  try {
+    const response = await fetch('/api/mainnet_balance', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15.0 Safari/604.1',
+        'Accept': 'application/json, text/plain, */*',
+        'Origin': 'https://socialchain.app',
+        'Referer': 'https://socialchain.app/',
+        'Host': 'socialchain.app'
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch mainnet balance: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching mainnet balance:', error);
+    return null;
+  }
+}
+
 export default function ManageAccounts() {
   // Sorting state
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-
   // State for adding new account
   const [isExistingAccount, setIsExistingAccount] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -65,6 +91,7 @@ export default function ManageAccounts() {
     kyc_status: false,
     kyc_detailed_status: false,
     referred_by: false,
+    // New mainnet balance fields (visible by default)
     pending_balance: true,
     balance_ready: true,
     total_pushed_balance: true,
@@ -94,13 +121,48 @@ export default function ManageAccounts() {
       setSortDirection('asc');
     }
   };
+  // Save sort state to localStorage when it changes
+  useEffect(() => {
+    // Load sort state on component mount
+    const savedSortColumn = localStorage.getItem('sortColumn');
+    const savedSortDirection = localStorage.getItem('sortDirection');
+    
+    if (savedSortColumn) {
+      setSortColumn(savedSortColumn);
+    }
+    if (savedSortDirection === 'asc' || savedSortDirection === 'desc') {
+      setSortDirection(savedSortDirection as 'asc' | 'desc');
+    }
+    
+    // No need to return cleanup function
+  }, []);
   
+  // Add this effect to save sort state when it changes
+  useEffect(() => {
+    if (sortColumn) {
+      localStorage.setItem('sortColumn', sortColumn);
+    } else {
+      localStorage.removeItem('sortColumn');
+    }
+    localStorage.setItem('sortDirection', sortDirection);
+  }, [sortColumn, sortDirection]);
+
   // Compute sorted accounts based on sort state
   const sortedAccounts = useMemo(() => {
     if (!sortColumn) return accounts;
   
     return [...accounts].sort((a, b) => {
       // Handle specific columns as per requirements
+
+      // Sort Mining Status - Active or Inactive
+      if (sortColumn === 'mining_status') {
+        const aStatus = (a.mining_status || '').toLowerCase();
+        const bStatus = (b.mining_status || '').toLowerCase();
+        return sortDirection === 'asc' 
+          ? aStatus.localeCompare(bStatus) 
+          : bStatus.localeCompare(aStatus);
+      }
+
       if (sortColumn === 'username') {
         const aUsername = (a.username || '').toLowerCase();
         const bUsername = (b.username || '').toLowerCase();
@@ -127,6 +189,25 @@ export default function ManageAccounts() {
         return sortDirection === 'asc' 
           ? aStatus.localeCompare(bStatus) 
           : bStatus.localeCompare(aStatus);
+      }
+      
+      // Add sorting for new mainnet balance fields
+      if (sortColumn === 'pending_balance') {
+        const aValue = a.pending_balance || 0;
+        const bValue = b.pending_balance || 0;
+        return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+      }
+      
+      if (sortColumn === 'balance_ready') {
+        const aValue = a.balance_ready || 0;
+        const bValue = b.balance_ready || 0;
+        return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+      }
+      
+      if (sortColumn === 'total_pushed_balance') {
+        const aValue = a.total_pushed_balance || 0;
+        const bValue = b.total_pushed_balance || 0;
+        return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
       }
       
       // Default case for other columns
@@ -212,6 +293,11 @@ export default function ManageAccounts() {
             let kyc_status = '';
             let kyc_detailed_status = '';
             
+            // Initialize mainnet balance values
+            let pending_balance = 0;
+            let balance_ready = 0;
+            let total_pushed_balance = 0;
+            
             if (!username && userData && typeof userData === 'object') {
               const userDataObj = userData as { 
                 profile?: { 
@@ -260,6 +346,35 @@ export default function ManageAccounts() {
               kyc_status = kycDataObj.status || '';
               kyc_detailed_status = kycDataObj.detailed_status || '';
             }
+            
+            // Fetch mainnet balance data
+            const mainnetData = await getCacheData(account.phone_number, 'mainnet');
+            if (mainnetData && typeof mainnetData === 'object') {
+              const mainnetDataObj = mainnetData as {
+                pending_balance?: number;
+                balance_ready?: number;
+                total_pushed_balance?: number;
+              };
+              
+              pending_balance = mainnetDataObj.pending_balance || 0;
+              balance_ready = mainnetDataObj.balance_ready || 0;
+              total_pushed_balance = mainnetDataObj.total_pushed_balance || 0;
+            } else if (account.credentials?.access_token) {
+              // If no cached data exists, fetch from API
+              try {
+                const mainnetBalance = await fetchMainnetBalance(account.credentials.access_token);
+                if (mainnetBalance) {
+                  pending_balance = mainnetBalance.pending_balance || 0;
+                  balance_ready = mainnetBalance.balance_ready || 0;
+                  total_pushed_balance = mainnetBalance.total_pushed_balance || 0;
+                  
+                  // Cache the mainnet balance data
+                  await setCacheData(account.phone_number, 'mainnet', mainnetBalance);
+                }
+              } catch (err) {
+                console.error('Failed to fetch mainnet balance:', err);
+              }
+            }
   
             return {
               ...account,
@@ -276,7 +391,11 @@ export default function ManageAccounts() {
               kyc_eligible,
               kyc_status,
               kyc_detailed_status,
-              referred_by
+              referred_by,
+              // Add mainnet balance data
+              pending_balance,
+              balance_ready,
+              total_pushed_balance
             };
           })
         );
@@ -368,6 +487,13 @@ export default function ManageAccounts() {
           },
         });
         const userData = await userResponse.json();
+        
+        // Fetch mainnet balance data for the new account
+        const mainnetBalance = await fetchMainnetBalance(loginData.credentials.access_token);
+        if (mainnetBalance) {
+          // Cache the mainnet balance data
+          await setCacheData(phoneNumber, 'mainnet', mainnetBalance);
+        }
   
         // Save account to IndexedDB
         await saveAccount({
@@ -787,6 +913,7 @@ export default function ManageAccounts() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
+                      
                       {columnVisibility.username && renderSortableHeader('username', 'Username')}
                       {columnVisibility.display_name && (
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Display Name</th>
@@ -798,9 +925,10 @@ export default function ManageAccounts() {
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Verification</th>
                       )}
                       {columnVisibility.balance && renderSortableHeader('balance', 'Balance')}
-                      {columnVisibility.mining_status && (
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mining Status</th>
-                      )}
+                      {columnVisibility.pending_balance && renderSortableHeader('pending_balance', 'Pending Balance')}
+                      {columnVisibility.balance_ready && renderSortableHeader('balance_ready', 'Balance Ready')}
+                      {columnVisibility.total_pushed_balance && renderSortableHeader('total_pushed_balance', 'Total Pushed Balance')}
+                      {columnVisibility.mining_status && renderSortableHeader('mining_status', 'Mining Status')}
                       {columnVisibility.completed_sessions && renderSortableHeader('completed_sessions', 'Completed Sessions')}
                       {columnVisibility.facebook_verified && (
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Facebook Verified</th>
@@ -862,6 +990,22 @@ export default function ManageAccounts() {
                         {columnVisibility.balance && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {account.balance?.toFixed(4)} π
+                          </td>
+                        )}
+                        {/* New cells for mainnet balance */}
+                        {columnVisibility.pending_balance && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.pending_balance?.toFixed(4) || '0.0000'} π
+                          </td>
+                        )}
+                        {columnVisibility.balance_ready && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.balance_ready?.toFixed(4) || '0.0000'} π
+                          </td>
+                        )}
+                        {columnVisibility.total_pushed_balance && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.total_pushed_balance?.toFixed(4) || '0.0000'} π
                           </td>
                         )}
                         {columnVisibility.mining_status && (
