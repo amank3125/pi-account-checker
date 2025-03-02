@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { getAccount, setCacheData, getCacheData } from '@/lib/db';
 import Sidebar from '../../components/layout/Sidebar';
 import { useParams } from 'next/navigation';
-import { IconCheck, IconX } from '@tabler/icons-react';
+import { IconBrandFacebook, IconCheck, IconLogin, IconMail, IconPassword, IconPhone, IconPick, IconUser, IconWallet, IconX } from '@tabler/icons-react';
 
 interface PiData {
   balance: number;
@@ -43,6 +43,7 @@ export default function AccountPage() {
   const [piData, setPiData] = useState<PiData | null>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [kycData, setKycData] = useState<KycData | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [errors, setErrors] = useState({
     pi: '',
     user: '',
@@ -252,9 +253,36 @@ export default function AccountPage() {
     </div>
   );
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 pl-64">
+    <div className="flex flex-col md:flex-row min-h-screen">
+      {/* Sidebar */}
+      <Sidebar 
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
+
+      {/* Mobile top bar */}
+      <div className="md:hidden bg-blue-600 text-white p-4 flex justify-between items-center">
+        <h1 className="text-xl font-bold">Account Details</h1>
+        <button onClick={() => setIsSidebarOpen(true)}>
+          {/* Hamburger icon */}
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path 
+              strokeLinecap="round" 
+              strokeLinejoin="round" 
+              strokeWidth={2} 
+              d="M4 6h16M4 12h16M4 18h16" 
+            />
+          </svg>
+        </button>
+      </div>
+
+      {/* Main content with padding on md+ to accommodate sidebar */}
+      <main className="flex-1 md:pl-64 bg-white">
         <div className="p-8">
           <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="bg-blue-600 p-4">
@@ -274,21 +302,21 @@ export default function AccountPage() {
                     }} 
                   />
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Balance</label>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">Balance<IconWallet className='inline h-4 w-4 ml-1'></IconWallet></label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : `${piData?.balance?.toFixed(4)} π`}
                       </div>
                     </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Completed Sessions</label>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">Completed Sessions<IconLogin className='inline h-4 w-4 ml-1'></IconLogin></label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : piData?.completed_sessions_count}
                       </div>
                     </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Mining Status</label>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">Mining Status<IconPick className='inline h-4 w-4 ml-1'></IconPick></label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : (piData?.mining_status.is_mining ? 'Active' : 'Inactive')}
                       </div>
@@ -309,56 +337,56 @@ export default function AccountPage() {
                     }} 
                   />
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Username</label>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">Username<IconUser className='inline h-4 w-4 ml-1'></IconUser></label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : userData?.profile.username}
                       </div>
                     </div>
-                    <div>
+                    <div className="p-4 bg-gray-50 rounded-lg">
                       <label className="text-sm font-medium text-gray-500">Display Name</label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : userData?.profile.display_name}
                       </div>
                     </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Phone Verification</label>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">Phone Verification<IconPhone className='inline h-4 w-4 ml-1'></IconPhone></label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : userData?.profile.phone_verification}
                       </div>
                     </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Facebook Verified</label>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">Facebook Verified<IconBrandFacebook className='inline h-4 w-4 ml-1'></IconBrandFacebook></label>
                       <div className="flex items-center space-x-2">
                         {loading ? <Shimmer /> : <StatusIcon value={userData?.profile.verified_with_facebook || false} />}
                       </div>
                     </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Password Status</label>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">Password Status<IconPassword className='inline h-4 w-4 ml-1'></IconPassword></label>
                       <div className="flex items-center space-x-2">
                         {loading ? <Shimmer /> : <StatusIcon value={userData?.profile.password_status.exists || false} />}
                       </div>
                     </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Trusted Email</label>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">Trusted Email<IconMail className='inline h-4 w-4 ml-1'></IconMail></label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : (userData?.profile.trusted_email || 'Not Set')}
                       </div>
                     </div>
-                    <div>
+                    <div className="p-4 bg-gray-50 rounded-lg">
                       <label className="text-sm font-medium text-gray-500">Email Verified</label>
                       <div className="flex items-center space-x-2">
                         {loading ? <Shimmer /> : <StatusIcon value={userData?.profile.email_verified || false} />}
                       </div>
                     </div>
-                    <div>
+                    <div className="p-4 bg-gray-50 rounded-lg">
                       <label className="text-sm font-medium text-gray-500">KYC Eligible</label>
                       <div className="flex items-center space-x-2">
                         {loading ? <Shimmer /> : <StatusIcon value={userData?.profile.kyc_eligible || false} />}
                       </div>
                     </div>
-                    <div>
+                    <div className="p-4 bg-gray-50 rounded-lg">
                       <label className="text-sm font-medium text-gray-500">Referred By</label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : userData?.referring_user.display_name}
@@ -380,14 +408,14 @@ export default function AccountPage() {
                     }} 
                   />
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="p-4 bg-gray-50 rounded-lg">
                       <label className="text-sm font-medium text-gray-500">Status</label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : (kycData?.status || 'Not Available')}
                       </div>
                     </div>
-                    <div>
+                    <div className="p-4 bg-gray-50 rounded-lg">
                       <label className="text-sm font-medium text-gray-500">Detailed Status</label>
                       <div className="text-lg font-medium text-gray-900">
                         {loading ? <Shimmer /> : (kycData?.detailed_status || 'Not Available')}

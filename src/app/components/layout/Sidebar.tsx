@@ -59,10 +59,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     <>
       {/* Sidebar container with slide-in effect on mobile */}
       <div
-        className={`fixed top-0 left-0 z-50 h-full w-64 bg-gray-800 text-white transform
-                    transition-transform duration-300 ease-in-out
+        className={`fixed top-0 left-0 z-50 h-screen w-64 bg-gray-800 text-white transform
+                    transition-transform duration-300 ease-in-out overflow-y-auto
                     ${isOpen ? 'translate-x-0' : '-translate-x-full'}
-                    md:static md:translate-x-0`}
+                    md:static md:translate-x-0 md:h-screen`}
       >
         {/* Close button (visible on mobile only) */}
         <button
