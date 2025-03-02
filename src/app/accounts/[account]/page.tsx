@@ -311,14 +311,30 @@ export default function AccountPage() {
                     </div>
                     <div className="p-4 bg-gray-50 rounded-lg">
                       <label className="text-sm font-medium text-gray-500">Completed Sessions<IconLogin className='inline h-4 w-4 ml-1'></IconLogin></label>
-                      <div className="text-lg font-medium text-gray-900">
-                        {loading ? <Shimmer /> : piData?.completed_sessions_count}
+                      <div className="text-lg font-medium text-gray-900 flex items-center gap-2">
+                        {loading ? <Shimmer /> : (
+                          <>
+                            {piData?.completed_sessions_count}
+                            {piData?.completed_sessions_count < 30 && (
+                              <div className="relative group">
+                                <div className="w-5 h-5 flex items-center justify-center rounded-full border-2 border-red-500 text-red-500 text-sm font-bold cursor-help">!</div>
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-red-100 text-red-800 text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                  You&apos;ve completed less than 30 mining sessions. You might be ineligible for KYC
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
                     <div className="p-4 bg-gray-50 rounded-lg">
                       <label className="text-sm font-medium text-gray-500">Mining Status<IconPick className='inline h-4 w-4 ml-1'></IconPick></label>
                       <div className="text-lg font-medium text-gray-900">
-                        {loading ? <Shimmer /> : (piData?.mining_status.is_mining ? 'Active' : 'Inactive')}
+                        {loading ? <Shimmer /> : (
+                          <span className={`text-sm ${piData?.mining_status.is_mining ? 'text-green-600' : 'text-yellow-600'}`}>
+                            {piData?.mining_status.is_mining ? 'Active' : 'Inactive'}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

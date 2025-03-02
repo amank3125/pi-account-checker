@@ -51,28 +51,39 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           const userData = await getCacheData(account.phone_number, 'user');
           const piData = await getCacheData(account.phone_number, 'pi');
           let username = account.username;
-          let balance = null;
-
+          let balance = 0;
+          let mining_status = 'Inactive';
+      
           if (!username && userData && typeof userData === 'object') {
             const userDataObj = userData as { profile?: { username?: string; display_name?: string } };
             username = userDataObj.profile?.username || userDataObj.profile?.display_name;
           }
-
+      
           if (piData && typeof piData === 'object') {
-            const piDataObj = piData as { balance?: number };
-            balance = piDataObj.balance;
+            const piDataObj = piData as { balance?: number; mining_status?: { is_mining: boolean } };
+            balance = piDataObj.balance || 0;
+            mining_status = piDataObj.mining_status?.is_mining ? 'Active' : 'Inactive';
           }
-
+      
           return {
             ...account,
             username: username || account.phone_number,
             balance,
+            mining_status
           };
         })
       );
       setAccounts(accountsWithUsernames || []);
     };
+    
+    // Initial load
     loadAccounts();
+    
+    // Set up interval to refresh data every minute
+    const interval = setInterval(loadAccounts, 60000);
+    
+    // Cleanup interval on component unmount
+    return () => clearInterval(interval);
   }, []);
 
   const isActive = (path: string) => pathname === path;
@@ -82,7 +93,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       {/* Sidebar container with slide-in effect on mobile */}
       <div
         className={`fixed top-0 left-0 z-50 h-screen w-64 bg-gray-800 text-white transform
-                    transition-transform duration-300 ease-in-out
+                    transition-transform duration-300 ease-in-out overflow-hidden
                     ${isOpen ? 'translate-x-0' : '-translate-x-full'}
                     md:static md:translate-x-0 md:h-screen md:sticky md:top-0`}
       >
@@ -93,12 +104,12 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         >
           <IconChevronLeft className="w-5 h-5 text-white" />
         </button>
-
+      
         {/* Header */}
         <div className="text-xl font-bold mb-8 text-center pt-6">
           Pi Account Checker
         </div>
-
+      
         {/* Nav links with custom scrollbar */}
         <nav className="space-y-2 px-4 overflow-y-auto h-[calc(100vh-180px)] scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-full">
           <Link
@@ -150,13 +161,13 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     }`}
                     onClick={onClose}
                   >
-                    <div className="flex justify-between items-center">
-                      <span>
+                    <div className="flex justify-between items-center overflow-hidden">
+                      <span className="truncate flex-1">
                         <span className="text-gray-400 mr-2">{index + 1}.</span>
                         {account.username || account.phone_number}
                       </span>
                       {account.balance !== null && (
-                        <span className="text-xs opacity-75">
+                        <span className="text-xs opacity-75 ml-2 whitespace-nowrap">
                           {account.balance?.toFixed(4)} π
                         </span>
                       )}
@@ -167,18 +178,18 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             )}
           </div>
         </nav>
-
+      
         {/* Footer (total balance) */}
         {accounts.length > 0 && (
           <div className="absolute bottom-0 left-0 right-0 p-4 bg-gray-900 border-t border-gray-700">
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-400">Total Balance:</span>
-              <div className="flex flex-col items-end">
-                <span className="text-sm font-medium">
+            <div className="flex justify-between items-center overflow-hidden">
+              <span className="text-sm text-gray-400 truncate">Total Balance:</span>
+              <div className="flex flex-col items-end ml-2">
+                <span className="text-sm font-medium whitespace-nowrap">
                   {accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0).toFixed(4)} π
                 </span>
                 {piPrice && (
-                  <span className="text-xs text-gray-500 flex items-center">
+                  <span className="text-xs text-gray-500 flex items-center whitespace-nowrap">
                     <IconCurrencyDollar className="w-3 h-3 mr-0.5" />
                     {(accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0) * piPrice).toFixed(2)}
                   </span>
@@ -192,7 +203,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       {/* Optional semi-transparent backdrop on mobile */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-40 z-40 md:hidden"
+          className="fixed inset-0 bg-opacity-60 backdrop-blur-[4px] z-40 "
           onClick={onClose}
         />
       )}

@@ -1,22 +1,39 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import Sidebar from '../components/layout/Sidebar';
 import { saveAccount, getAllAccounts, removeAccount, getAccount, getCacheData } from '@/lib/db';
 import Link from 'next/link';
-import { IconTrashX } from '@tabler/icons-react';
+import { IconColumns, IconTrashX, IconChevronUp, IconChevronDown } from '@tabler/icons-react';
 
 interface Account {
   phone_number: string;
   user_id: string;
   username?: string;
+  display_name?: string;
+  balance?: number;
+  mining_status?: string;
+  completed_sessions?: number;
+  phone_verification?: string;
+  facebook_verified?: boolean;
+  password_status?: boolean;
+  trusted_email?: string;
+  email_verified?: boolean;
+  kyc_eligible?: boolean;
+  kyc_status?: string;
+  kyc_detailed_status?: string;
+  referred_by?: string;
   credentials?: {
     access_token: string;
   };
 }
 
 export default function ManageAccounts() {
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
   // State for adding new account
   const [isExistingAccount, setIsExistingAccount] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -26,6 +43,125 @@ export default function ManageAccounts() {
   
   // State for stored accounts
   const [accounts, setAccounts] = useState<Account[]>([]);
+  
+  // Add column visibility state
+  // Define default column visibility state
+  const defaultColumnVisibility = {
+    username: true,
+    phone_number: true,
+    balance: true,
+    mining_status: true,
+    completed_sessions: true,
+    display_name: false,
+    phone_verification: false,
+    facebook_verified: false,
+    password_status: false,
+    trusted_email: false,
+    email_verified: false,
+    kyc_eligible: true,
+    kyc_status: true,
+    kyc_detailed_status: false,
+    referred_by: false,
+    actions: true
+  };
+
+  const [columnVisibility, setColumnVisibility] = useState(() => {
+    if (typeof window === 'undefined') return defaultColumnVisibility;
+    
+    try {
+      const savedVisibility = localStorage.getItem('columnVisibility');
+      return savedVisibility ? { ...defaultColumnVisibility, ...JSON.parse(savedVisibility) } : defaultColumnVisibility;
+    } catch (error) {
+      console.error('Error parsing column visibility from localStorage:', error);
+      return defaultColumnVisibility;
+    }
+  });
+
+  // Handle sorting when a header is clicked
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column is clicked
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new column and default to ascending
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Compute sorted accounts based on sort state
+  const sortedAccounts = useMemo(() => {
+    if (!sortColumn) return accounts;
+
+    return [...accounts].sort((a, b) => {
+      // Handle specific columns as per requirements
+      if (sortColumn === 'username') {
+        const aUsername = (a.username || '').toLowerCase();
+        const bUsername = (b.username || '').toLowerCase();
+        return sortDirection === 'asc' 
+          ? aUsername.localeCompare(bUsername) 
+          : bUsername.localeCompare(aUsername);
+      } 
+      
+      if (sortColumn === 'balance') {
+        const aBalance = a.balance || 0;
+        const bBalance = b.balance || 0;
+        return sortDirection === 'asc' ? aBalance - bBalance : bBalance - aBalance;
+      }
+      
+      if (sortColumn === 'completed_sessions') {
+        const aSessions = a.completed_sessions || 0;
+        const bSessions = b.completed_sessions || 0;
+        return sortDirection === 'asc' ? aSessions - bSessions : bSessions - aSessions;
+      }
+      
+      if (sortColumn === 'kyc_status') {
+        const aStatus = (a.kyc_status || '').toLowerCase();
+        const bStatus = (b.kyc_status || '').toLowerCase();
+        return sortDirection === 'asc' 
+          ? aStatus.localeCompare(bStatus) 
+          : bStatus.localeCompare(aStatus);
+      }
+      
+      // Default case for other columns
+      const aValue = a[sortColumn as keyof Account];
+      const bValue = b[sortColumn as keyof Account];
+      
+      if (aValue === undefined && bValue === undefined) return 0;
+      if (aValue === undefined) return sortDirection === 'asc' ? -1 : 1;
+      if (bValue === undefined) return sortDirection === 'asc' ? 1 : -1;
+      
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+      } else {
+        const aString = String(aValue).toLowerCase();
+        const bString = String(bValue).toLowerCase();
+        return sortDirection === 'asc' 
+          ? aString.localeCompare(bString) 
+          : bString.localeCompare(aString);
+      }
+    });
+  }, [accounts, sortColumn, sortDirection]);
+  
+  // Save column visibility to localStorage
+  useEffect(() => {
+    localStorage.setItem('columnVisibility', JSON.stringify(columnVisibility));
+  }, [columnVisibility]);
+
+  // Add click outside handler
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      const dropdown = document.getElementById('column-dropdown');
+      if (dropdown && !dropdown.contains(event.target as Node)) {
+        dropdown.classList.add('hidden');
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
   
   // State for step indicators
   const [loginStep, setLoginStep] = useState('idle'); 
@@ -47,25 +183,100 @@ export default function ManageAccounts() {
     }
   }, [loginStep]);
 
-  // Load accounts from IndexedDB
+  // Load accounts from IndexedDB with Pi data
   useEffect(() => {
     const loadAccounts = async () => {
       try {
         const savedAccounts = await getAllAccounts();
-        const accountsWithUsernames = await Promise.all(
+        const accountsWithData = await Promise.all(
           savedAccounts.map(async (account) => {
             const userData = await getCacheData(account.phone_number, 'user');
-            if (userData && typeof userData === 'object' && 'profile' in userData) {
-              const profile = (userData as { profile: { username?: string; display_name?: string } }).profile;
-              return {
-                ...account,
-                username: profile.username || profile.display_name || account.phone_number
+            const piData = await getCacheData(account.phone_number, 'pi');
+            let username = account.username;
+            let balance = 0;
+            let mining_status = 'Inactive';
+
+            let display_name = '';
+            let phone_verification = '';
+            let facebook_verified = false;
+            let password_status = false;
+            let trusted_email = '';
+            let email_verified = false;
+            let kyc_eligible = false;
+            let referred_by = '';
+            let completed_sessions = 0;
+            let kyc_status = '';
+            let kyc_detailed_status = '';
+            
+            if (!username && userData && typeof userData === 'object') {
+              const userDataObj = userData as { 
+                profile?: { 
+                  username?: string; 
+                  display_name?: string;
+                  phone_verification?: string;
+                  verified_with_facebook?: boolean;
+                  password_status?: { exists: boolean };
+                  trusted_email?: string;
+                  email_verified?: boolean;
+                  kyc_eligible?: boolean;
+                },
+                referring_user?: {
+                  display_name?: string;
+                }
               };
+              
+              username = userDataObj.profile?.username || userDataObj.profile?.display_name;
+              display_name = userDataObj.profile?.display_name || '';
+              phone_verification = userDataObj.profile?.phone_verification || '';
+              facebook_verified = userDataObj.profile?.verified_with_facebook || false;
+              password_status = userDataObj.profile?.password_status?.exists || false;
+              trusted_email = userDataObj.profile?.trusted_email || '';
+              email_verified = userDataObj.profile?.email_verified || false;
+              kyc_eligible = userDataObj.profile?.kyc_eligible || false;
+              referred_by = userDataObj.referring_user?.display_name || '';
             }
-            return { ...account, username: account.phone_number };
+
+            if (piData && typeof piData === 'object') {
+              const piDataObj = piData as { 
+                balance?: number; 
+                mining_status?: { is_mining: boolean };
+                completed_sessions_count?: number;
+              };
+              balance = piDataObj.balance || 0;
+              mining_status = piDataObj.mining_status?.is_mining ? 'Active' : 'Inactive';
+              completed_sessions = piDataObj.completed_sessions_count || 0;
+            }
+            
+            const kycData = await getCacheData(account.phone_number, 'kyc');
+            if (kycData && typeof kycData === 'object') {
+              const kycDataObj = kycData as {
+                status?: string;
+                detailed_status?: string;
+              };
+              kyc_status = kycDataObj.status || '';
+              kyc_detailed_status = kycDataObj.detailed_status || '';
+            }
+
+            return {
+              ...account,
+              username: username || account.phone_number,
+              display_name,
+              balance,
+              mining_status,
+              completed_sessions,
+              phone_verification,
+              facebook_verified,
+              password_status,
+              trusted_email,
+              email_verified,
+              kyc_eligible,
+              kyc_status,
+              kyc_detailed_status,
+              referred_by
+            };
           })
         );
-        setAccounts(accountsWithUsernames || []);
+        setAccounts(accountsWithData || []);
       } catch (err) {
         console.error('Failed to load accounts:', err);
         setAccounts([]);
@@ -207,6 +418,32 @@ export default function ManageAccounts() {
     }
   };
 
+  // Helper function to render sort icons
+  const renderSortIcon = (column: string) => {
+    if (sortColumn !== column) {
+      return null;
+    }
+    return sortDirection === 'asc' ? 
+      <IconChevronUp className="w-4 h-4 inline-block ml-1" /> : 
+      <IconChevronDown className="w-4 h-4 inline-block ml-1" />;
+  };
+
+  // Helper function to create sortable header cells
+  const renderSortableHeader = (column: string, label: string) => {
+    return (
+      <th 
+        scope="col" 
+        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+        onClick={() => handleSort(column)}
+      >
+        <div className="flex items-center">
+          {label}
+          {renderSortIcon(column)}
+        </div>
+      </th>
+    );
+  };
+
   return (
     <div className="flex flex-col md:flex-row min-h-screen">
       {/* Sidebar */}
@@ -241,7 +478,7 @@ export default function ManageAccounts() {
         <Toaster position="top-center" />
         
         <div className="p-8">
-          <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
+          <div className="max-w-6xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="bg-blue-600 p-4">
               <h1 className="text-2xl font-bold text-white text-center">
                 Manage Accounts
@@ -382,18 +619,8 @@ export default function ManageAccounts() {
                               </svg>
                             )}
                             {loginStep === 'check-failed' && (
-                              <svg
-                                className="h-4 w-4 text-red-600"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth="2"
-                                  d="M6 18L18 6M6 6l12 12"
-                                ></path>
+                              <svg className="h-4 w-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                               </svg>
                             )}
                           </div>
@@ -503,18 +730,8 @@ export default function ManageAccounts() {
                                 </svg>
                               )}
                               {loginStep === 'obtain-failed' && (
-                                <svg
-                                  className="h-4 w-4 text-red-600"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth="2"
-                                    d="M6 18L18 6M6 6l12 12"
-                                  ></path>
+                                <svg className="h-4 w-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                                 </svg>
                               )}
                             </div>
@@ -525,45 +742,204 @@ export default function ManageAccounts() {
                   )}
                 </div>
               </div>
-
-              {/* Managed Accounts list */}
-              <div className="mt-8">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">
-                  Managed Accounts
-                </h2>
-                <div className="space-y-2">
-                  {accounts.map((account, index) => (
-                    <div
-                      key={index}
-                      className="flex justify-between items-center p-4 bg-gray-50 rounded-md"
-                    >
-                      <Link
-                        href={`/accounts/${account.phone_number}`}
-                        className="flex flex-col"
+              {/* Show accounts table only if there are accounts */}
+              {accounts.length > 0 ? (
+                <>
+                  {/* Column Visibility Controls */}
+                  <div className="mb-4">
+                    <div className="relative">
+                      <button 
+                        className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 text-sm flex items-center cursor-pointer"
+                        onClick={() => document.getElementById('column-dropdown')?.classList.toggle('hidden')}
                       >
-                        <span className="font-medium text-gray-800 hover:text-blue-600">
-                          @{account.username}
-                        </span>
-                        <span className="text-[12px] text-gray-500 pl-4">
-                          {account.phone_number}
-                        </span>
-                      </Link>
-                      <button
-                        onClick={() => handleLogout(account.phone_number)}
-                        className="px-3 py-1 text-sm text-red-600 hover:text-red-800"
-                      >
-                        <IconTrashX className="h-4 w-4" />
+                        <IconColumns className='h-4 w-4 mr-1'></IconColumns>
+                        Pick Columns
+                        <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                        </svg>
                       </button>
+                      <div id="column-dropdown" className="hidden absolute z-10 mt-1 w-64 bg-white rounded-md shadow-lg p-2 border border-gray-200 max-h-60 overflow-y-auto">
+                        {Object.entries(columnVisibility).map(([column, isVisible]) => (
+                          <label key={column} className="flex items-center p-2 hover:bg-gray-50 rounded cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(isVisible)}
+                              onChange={() => setColumnVisibility(prev => ({
+                                ...prev,
+                                [column]: !prev[column]
+                              }))}
+                              className="form-checkbox h-4 w-4 text-blue-600 rounded border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              {column.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-
-                  {accounts.length === 0 && (
-                    <p className="text-gray-500 text-center py-4">
-                      No accounts added yet
-                    </p>
-                  )}
-                </div>
+                  </div>
+                  {/* Accounts Table */}
+                  <div className="mb-6 overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {columnVisibility.username && renderSortableHeader('username', 'Username')}
+                      {columnVisibility.display_name && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Display Name</th>
+                      )}
+                      {columnVisibility.phone_number && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Number</th>
+                      )}
+                      {columnVisibility.phone_verification && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Verification</th>
+                      )}
+                      {columnVisibility.balance && renderSortableHeader('balance', 'Balance')}
+                      {columnVisibility.mining_status && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mining Status</th>
+                      )}
+                      {columnVisibility.completed_sessions && renderSortableHeader('completed_sessions', 'Completed Sessions')}
+                      {columnVisibility.facebook_verified && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Facebook Verified</th>
+                      )}
+                      {columnVisibility.password_status && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Password Status</th>
+                      )}
+                      {columnVisibility.trusted_email && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trusted Email</th>
+                      )}
+                      {columnVisibility.email_verified && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email Verified</th>
+                      )}
+                      {columnVisibility.kyc_eligible && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">KYC Eligible</th>
+                      )}
+                      {columnVisibility.kyc_status && renderSortableHeader('kyc_status', 'KYC Status')}
+                      {columnVisibility.kyc_detailed_status && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">KYC Detailed Status</th>
+                      )}
+                      {columnVisibility.referred_by && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Referred By</th>
+                      )}
+                      {columnVisibility.actions && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {sortedAccounts.map((account, index) => (
+                      <tr key={account.phone_number}>
+                        {columnVisibility.username && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-gray-400">{index + 1}.</span>
+                              <Link href={`/accounts/${account.phone_number}`} className="text-blue-600 hover:text-blue-800">
+                                {account.username || account.phone_number}
+                              </Link>
+                            </div>
+                          </td>
+                        )}
+                        {columnVisibility.display_name && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.display_name || 'N/A'}
+                          </td>
+                        )}
+                        {columnVisibility.phone_number && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{account.phone_number}</td>
+                        )}
+                        {columnVisibility.phone_verification && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.phone_verification || 'N/A'}
+                          </td>
+                        )}
+                        {columnVisibility.balance && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.balance?.toFixed(4)} π
+                          </td>
+                        )}
+                        {columnVisibility.mining_status && (
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${account.mining_status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                              {account.mining_status}
+                            </span>
+                          </td>
+                        )}
+                        {columnVisibility.completed_sessions && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <div className="flex items-center gap-2">
+                              {account.completed_sessions || 'N/A'}
+                              {account.completed_sessions && account.completed_sessions < 30 && (
+                                <div className="relative group">
+                                  <div className="w-4 h-4 flex items-center justify-center rounded-full border-2 border-red-500 text-red-500 text-xs font-bold cursor-help">!</div>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-red-100 text-red-800 text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+                                    Less than 30 mining sessions. May be ineligible for KYC
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                        {columnVisibility.facebook_verified && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.facebook_verified ? '✓' : '✗'}
+                          </td>
+                        )}
+                        {columnVisibility.password_status && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.password_status ? '✓' : '✗'}
+                          </td>
+                        )}
+                        {columnVisibility.trusted_email && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.trusted_email || 'N/A'}
+                          </td>
+                        )}
+                        {columnVisibility.email_verified && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.email_verified ? 'Yes' : 'No'}
+                          </td>
+                        )}
+                        {columnVisibility.kyc_eligible && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.kyc_eligible ? 'Yes' : 'No'}
+                          </td>
+                        )}
+                        {columnVisibility.kyc_status && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.kyc_status || 'Not Available'}
+                          </td>
+                        )}
+                        {columnVisibility.kyc_detailed_status && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.kyc_detailed_status || 'Not Available'}
+                          </td>
+                        )}
+                        {columnVisibility.referred_by && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {account.referred_by || 'None'}
+                          </td>
+                        )}
+                        {columnVisibility.actions && (
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button
+                              onClick={() => handleLogout(account.phone_number)}
+                              className="text-red-600 hover:text-red-900 flex items-center"
+                            >
+                              <IconTrashX className="w-4 h-4 mr-1" />
+                              Delete
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+              </>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No accounts added yet. Add an account to get started.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
