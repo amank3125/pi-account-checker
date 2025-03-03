@@ -70,7 +70,7 @@ export interface AccountCache {
 }
 
 // Add cache functions
-export async function setCacheData(phoneNumber: string, type: 'pi' | 'user' | 'kyc', data: unknown) {
+export async function setCacheData(phoneNumber: string, type: 'pi' | 'user' | 'kyc'| 'mainnet', data: unknown) {
   const db = await dbPromise as IDBPDatabase;
   const account = await db.get(storeName, phoneNumber);
   if (!account) return;
@@ -86,7 +86,7 @@ export async function setCacheData(phoneNumber: string, type: 'pi' | 'user' | 'k
   return db.put(storeName, account);
 }
 
-export async function getCacheData(phoneNumber: string, type: 'pi' | 'user' | 'kyc'): Promise<unknown> {
+export async function getCacheData(phoneNumber: string, type: 'pi' | 'user' | 'kyc'| 'mainnet'): Promise<unknown> {
   const db = await dbPromise as IDBPDatabase;
   const account = await db.get(storeName, phoneNumber);
   if (!account?.cache?.[type]) return null;
@@ -131,7 +131,7 @@ export async function clearCache(phoneNumber: string) {
   return db.put(storeName, account);
 }
 
-export async function refreshCache(phoneNumber: string, type: 'pi' | 'user' | 'kyc'): Promise<void> {
+export async function refreshCache(phoneNumber: string, type: 'pi' | 'user' | 'kyc'| 'mainnet'): Promise<void> {
   const db = await dbPromise as IDBPDatabase;
   const account = await db.get(storeName, phoneNumber);
   if (!account?.cache?.[type]) return;
