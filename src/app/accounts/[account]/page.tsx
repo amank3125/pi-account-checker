@@ -48,17 +48,27 @@ interface KycData {
   detailed_status: string | null;
 }
 
+interface MainnetBalanceData {
+  pending_balance: number;
+  balance_ready: number;
+  total_pushed_balance: number;
+}
+
 export default function AccountPage() {
   const params = useParams();
   const [loading, setLoading] = useState(true);
   const [piData, setPiData] = useState<PiData | null>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [kycData, setKycData] = useState<KycData | null>(null);
+  const [mainnetData, setMainnetData] = useState<MainnetBalanceData | null>(
+    null
+  );
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [errors, setErrors] = useState({
     pi: "",
     user: "",
     kyc: "",
+    mainnet: "",
   });
   useEffect(() => {
     const fetchData = async () => {
@@ -69,10 +79,16 @@ export default function AccountPage() {
         "user"
       );
       const cachedKycData = await getCacheData(params.account as string, "kyc");
+      const cachedMainnetData = await getCacheData(
+        params.account as string,
+        "mainnet"
+      );
 
       if (cachedPiData) setPiData(cachedPiData as PiData);
       if (cachedUserData) setUserData(cachedUserData as UserData);
       if (cachedKycData) setKycData(cachedKycData as KycData);
+      if (cachedMainnetData)
+        setMainnetData(cachedMainnetData as MainnetBalanceData);
       try {
         console.log("Fetching account for:", params.account);
         const account = await getAccount(params.account as string);
@@ -83,6 +99,7 @@ export default function AccountPage() {
             pi: "Account not found",
             user: "Account not found",
             kyc: "Account not found",
+            mainnet: "Account not found",
           });
           return;
         }
@@ -96,6 +113,7 @@ export default function AccountPage() {
             pi: "Invalid access token",
             user: "Invalid access token",
             kyc: "Invalid access token",
+            mainnet: "Invalid access token",
           });
           return;
         }
@@ -172,6 +190,30 @@ export default function AccountPage() {
         } catch (err: unknown) {
           console.error("KYC data error:", err);
           setErrors((prev) => ({ ...prev, kyc: "Failed to load KYC data" }));
+        }
+
+        // Fetch Mainnet data
+        try {
+          const mainnetResponse = await fetch("/api/mainnet_balance", {
+            method: "GET",
+            headers: headers,
+            redirect: "follow" as RequestRedirect,
+          });
+          if (!mainnetResponse.ok) {
+            throw new Error(
+              `Failed to fetch Mainnet data: ${mainnetResponse.status}`
+            );
+          }
+          const mainnetData = await mainnetResponse.json();
+          setMainnetData(mainnetData);
+          // Cache the Mainnet data
+          await setCacheData(params.account as string, "mainnet", mainnetData);
+        } catch (err: unknown) {
+          console.error("Mainnet data error:", err);
+          setErrors((prev) => ({
+            ...prev,
+            mainnet: "Failed to load Mainnet data",
+          }));
         }
       } finally {
         setLoading(false);
@@ -424,6 +466,109 @@ export default function AccountPage() {
                             {piData?.mining_status.is_mining
                               ? "Active"
                               : "Inactive"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Mainnet Balance Section */}
+              <div className="space-y-4">
+                <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">
+                  Mainnet Balance
+                </h2>
+                {errors.mainnet ? (
+                  <ErrorWithRetry
+                    message={errors.mainnet}
+                    onRetry={async () => {
+                      const account = await getAccount(
+                        params.account as string
+                      );
+                      if (account) {
+                        try {
+                          const mainnetResponse = await fetch(
+                            "/api/mainnet_balance",
+                            {
+                              headers: {
+                                Authorization: `Bearer ${account.credentials.access_token}`,
+                                "Content-Type": "application/json",
+                              },
+                            }
+                          );
+                          if (mainnetResponse.ok) {
+                            const mainnetData = await mainnetResponse.json();
+                            setMainnetData(mainnetData);
+                            await setCacheData(
+                              params.account as string,
+                              "mainnet",
+                              mainnetData
+                            );
+                            setErrors((prev) => ({ ...prev, mainnet: "" }));
+                          } else {
+                            throw new Error(
+                              `Failed to fetch mainnet data: ${mainnetResponse.status}`
+                            );
+                          }
+                        } catch (err) {
+                          console.error("Error refreshing mainnet data:", err);
+                          setErrors((prev) => ({
+                            ...prev,
+                            mainnet: "Failed to refresh mainnet data",
+                          }));
+                        }
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">
+                        Pending Balance
+                        <IconWallet className="inline h-4 w-4 ml-1"></IconWallet>
+                      </label>
+                      <div className="text-lg font-medium text-gray-900">
+                        {loading ? (
+                          <Shimmer />
+                        ) : (
+                          <span>
+                            {mainnetData?.pending_balance?.toFixed(4) ||
+                              "0.0000"}{" "}
+                            π
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">
+                        Balance Ready
+                        <IconWallet className="inline h-4 w-4 ml-1"></IconWallet>
+                      </label>
+                      <div className="text-lg font-medium text-gray-900">
+                        {loading ? (
+                          <Shimmer />
+                        ) : (
+                          <span>
+                            {mainnetData?.balance_ready?.toFixed(4) || "0.0000"}{" "}
+                            π
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <label className="text-sm font-medium text-gray-500">
+                        Total Pushed Balance
+                        <IconWallet className="inline h-4 w-4 ml-1"></IconWallet>
+                      </label>
+                      <div className="text-lg font-medium text-gray-900">
+                        {loading ? (
+                          <Shimmer />
+                        ) : (
+                          <span>
+                            {mainnetData?.total_pushed_balance?.toFixed(4) ||
+                              "0.0000"}{" "}
+                            π
                           </span>
                         )}
                       </div>

@@ -300,6 +300,36 @@ export default function ManageAccounts() {
         const savedAccounts = await getAllAccounts();
         console.log("Saved accounts:", savedAccounts);
 
+        // Force refresh mainnet balances for all accounts
+        for (const account of savedAccounts) {
+          if (account.credentials?.access_token) {
+            try {
+              console.log(
+                `Refreshing mainnet balance for ${account.phone_number}`
+              );
+              const mainnetBalance = await fetchMainnetBalance(
+                account.credentials.access_token
+              );
+              if (mainnetBalance) {
+                console.log(
+                  `Got fresh mainnet balance for ${account.phone_number}:`,
+                  mainnetBalance
+                );
+                await setCacheData(
+                  account.phone_number,
+                  "mainnet",
+                  mainnetBalance
+                );
+              }
+            } catch (err) {
+              console.error(
+                `Failed to refresh mainnet balance for ${account.phone_number}:`,
+                err
+              );
+            }
+          }
+        }
+
         const accountsWithData = await Promise.all(
           savedAccounts.map(async (account) => {
             const userData = await getCacheData(account.phone_number, "user");
@@ -407,13 +437,21 @@ export default function ManageAccounts() {
             }
 
             // Fetch mainnet balance data
-            const mainnetData = await getCacheData(account.phone_number, "pi");
+            const mainnetData = await getCacheData(
+              account.phone_number,
+              "mainnet"
+            );
             if (mainnetData && typeof mainnetData === "object") {
               const mainnetDataObj = mainnetData as {
                 pending_balance?: number;
                 balance_ready?: number;
                 total_pushed_balance?: number;
               };
+
+              console.log(
+                `Mainnet data for ${account.phone_number}:`,
+                mainnetDataObj
+              );
 
               pending_balance = mainnetDataObj.pending_balance || 0;
               balance_ready = mainnetDataObj.balance_ready || 0;
@@ -425,6 +463,11 @@ export default function ManageAccounts() {
                   account.credentials.access_token
                 );
                 if (mainnetBalance) {
+                  console.log(
+                    `Mainnet balance data from API for ${account.phone_number}:`,
+                    mainnetBalance
+                  );
+
                   pending_balance = mainnetBalance.pending_balance || 0;
                   balance_ready = mainnetBalance.balance_ready || 0;
                   total_pushed_balance =
@@ -516,7 +559,7 @@ export default function ManageAccounts() {
               total_pushed_balance,
             });
 
-            return {
+            const finalAccount = {
               ...account,
               username: username || account.phone_number,
               display_name,
@@ -537,6 +580,17 @@ export default function ManageAccounts() {
               balance_ready,
               total_pushed_balance,
             };
+
+            console.log(
+              `Final account object for ${account.phone_number} with mainnet data:`,
+              {
+                pending_balance,
+                balance_ready,
+                total_pushed_balance,
+              }
+            );
+
+            return finalAccount;
           })
         );
         setAccounts(accountsWithData || []);
