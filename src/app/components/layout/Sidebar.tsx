@@ -209,7 +209,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             </div>
             
             {isAccountsOpen && accounts.length > 0 && isExpanded && (
-              <div className="ml-4 mt-2 space-y-1 overflow-y-auto max-h-[50vh] scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-full pr-1">
+              <div className="ml-2 mt-2 space-y-1 overflow-y-auto max-h-[60vh] scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-full pr-1">
                 {accounts.map((account, index) => (
                   <Link
                     key={account.phone_number}

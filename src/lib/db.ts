@@ -6,6 +6,7 @@ export interface StoredAccount {
   phone_number: string;
   user_id: string;
   username?: string;
+  device_tag?: string;
   credentials?: {
     access_token: string;
     token_type: string;
@@ -156,11 +157,18 @@ export async function saveAccount(accountData: {
   phone_number: string;
   user_id: string;
   username?: string;
-  credentials: {
+  device_tag?: string;
+  credentials?: {
     access_token: string;
     token_type: string;
     expires_in: number;
     created_at: number;
+  };
+  cache?: {
+    pi?: CachedData;
+    user?: CachedData;
+    kyc?: CachedData;
+    mainnet?: CachedData;
   };
 }) {
   if (!dbPromise) {
@@ -168,17 +176,21 @@ export async function saveAccount(accountData: {
     return null;
   }
   
+  // Check if account already exists to preserve existing data
+  const existingAccount = await getAccount(accountData.phone_number);
+  
   const account: StoredAccount = {
     phone_number: accountData.phone_number,
     user_id: accountData.user_id,
     username: accountData.username,
-    credentials: accountData.credentials,
-    cache: {}
+    device_tag: accountData.device_tag,
+    credentials: accountData.credentials || existingAccount?.credentials,
+    cache: accountData.cache || existingAccount?.cache || {}
   };
   
+  // Remove duplicate db declaration since it's declared again below
   const db = await dbPromise;
-  const result = await (db as IDBPDatabase).put(storeName, account);
-  return result;
+  return await (db as IDBPDatabase).put(storeName, account);
 }
 export async function getAllAccounts(): Promise<StoredAccount[]> {
   if (!dbPromise) return [];

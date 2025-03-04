@@ -24,6 +24,7 @@ interface Account {
   kyc_status?: string;
   kyc_detailed_status?: string;
   referred_by?: string;
+  device_tag?: string;
   // New mainnet balance fields
   pending_balance?: number;
   balance_ready?: number;
@@ -95,6 +96,7 @@ export default function ManageAccounts() {
     pending_balance: true,
     balance_ready: true,
     total_pushed_balance: true,
+    device_tag: true,
     actions: true
   };
   
@@ -952,6 +954,9 @@ export default function ManageAccounts() {
                       {columnVisibility.referred_by && (
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Referred By</th>
                       )}
+                      {columnVisibility.device_tag && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device Tag</th>
+                      )}
                       {columnVisibility.actions && (
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                       )}
@@ -1068,6 +1073,35 @@ export default function ManageAccounts() {
                         {columnVisibility.referred_by && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {account.referred_by || 'None'}
+                          </td>
+                        )}
+                        {columnVisibility.device_tag && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <input
+                              type="text"
+                              value={account.device_tag || ''}
+                              onChange={async (e) => {
+                                const newTag = e.target.value;
+                                const updatedAccount = { ...account, device_tag: newTag };
+await saveAccount({
+  phone_number: updatedAccount.phone_number,
+  user_id: updatedAccount.user_id,
+  username: updatedAccount.username,
+  device_tag: updatedAccount.device_tag,
+  credentials: updatedAccount.credentials ? {
+    access_token: updatedAccount.credentials.access_token,
+    token_type: 'Bearer',
+    expires_in: 3600,
+    created_at: Date.now()
+  } : undefined
+});
+                                setAccounts(accounts.map(acc => 
+                                  acc.phone_number === account.phone_number ? updatedAccount : acc
+                                ));
+                              }}
+                              className="border border-gray-300 rounded px-2 py-1 text-sm w-full max-w-[150px]"
+                              placeholder="Enter tag..."
+                            />
                           </td>
                         )}
                         {columnVisibility.actions && (
