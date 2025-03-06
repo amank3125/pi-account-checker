@@ -284,7 +284,7 @@ export async function saveAccountSupabase(accountData: {
         console.log(`Updating account data for ${accountData.phone_number}`);
 
         // Prepare the update object, only include fields that are provided
-        const updateData: Record<string, any> = {};
+        const updateData: Record<string, unknown> = {};
 
         if (accountData.username !== undefined)
           updateData.username = accountData.username;
