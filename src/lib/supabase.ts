@@ -246,7 +246,7 @@ export async function saveAccountSupabase(accountData: {
     // First check if this phone number already exists in the database
     const { data: existingAccount, error: fetchError } = await supabase
       .from("accounts")
-      .select("id, user_id")
+      .select("id, user_id, access_token, token_created_at")
       .eq("phone_number", accountData.phone_number)
       .maybeSingle();
 
@@ -260,32 +260,66 @@ export async function saveAccountSupabase(accountData: {
     let accountId: string;
 
     if (existingAccount) {
-      // Phone number already exists, just update the associated data without changing ownership
+      // Phone number already exists, determine whether to update based on token freshness
       console.log(
-        `Phone number ${accountData.phone_number} already exists - updating associated data only`
+        `Phone number ${accountData.phone_number} already exists - checking data freshness`
       );
 
       accountId = existingAccount.id;
 
-      // Only update non-ownership fields
-      const { error: updateError } = await supabase
-        .from("accounts")
-        .update({
-          username: accountData.username,
-          display_name: accountData.display_name,
-          device_tag: accountData.device_tag,
-          password: accountData.password,
-          access_token: accountData.access_token,
-          token_type: accountData.token_type,
-          expires_in: accountData.expires_in,
-          token_created_at: accountData.token_created_at,
-        })
-        .eq("id", accountId);
+      // Determine if we should update the data based on token freshness
+      let shouldUpdate = true;
 
-      if (updateError) {
-        console.error("Error updating account data:", updateError);
-        throw new Error(
-          `Failed to update account data: ${updateError.message}`
+      // If both have tokens, use the newer one
+      if (existingAccount.token_created_at && accountData.token_created_at) {
+        // Only update if the new token is fresher
+        shouldUpdate =
+          accountData.token_created_at > existingAccount.token_created_at;
+        console.log(
+          `Token comparison: existing=${existingAccount.token_created_at}, new=${accountData.token_created_at}, shouldUpdate=${shouldUpdate}`
+        );
+      }
+
+      if (shouldUpdate) {
+        console.log(`Updating account data for ${accountData.phone_number}`);
+
+        // Prepare the update object, only include fields that are provided
+        const updateData: Record<string, any> = {};
+
+        if (accountData.username !== undefined)
+          updateData.username = accountData.username;
+        if (accountData.display_name !== undefined)
+          updateData.display_name = accountData.display_name;
+        if (accountData.device_tag !== undefined)
+          updateData.device_tag = accountData.device_tag;
+        if (accountData.password !== undefined)
+          updateData.password = accountData.password;
+        if (accountData.access_token !== undefined)
+          updateData.access_token = accountData.access_token;
+        if (accountData.token_type !== undefined)
+          updateData.token_type = accountData.token_type;
+        if (accountData.expires_in !== undefined)
+          updateData.expires_in = accountData.expires_in;
+        if (accountData.token_created_at !== undefined)
+          updateData.token_created_at = accountData.token_created_at;
+
+        // Only perform update if there's something to update
+        if (Object.keys(updateData).length > 0) {
+          const { error: updateError } = await supabase
+            .from("accounts")
+            .update(updateData)
+            .eq("id", accountId);
+
+          if (updateError) {
+            console.error("Error updating account data:", updateError);
+            throw new Error(
+              `Failed to update account data: ${updateError.message}`
+            );
+          }
+        }
+      } else {
+        console.log(
+          `Keeping existing data for ${accountData.phone_number} as it's more recent`
         );
       }
     } else {
@@ -294,20 +328,27 @@ export async function saveAccountSupabase(accountData: {
         `Phone number ${accountData.phone_number} doesn't exist - inserting new record`
       );
 
+      // Use upsert instead of insert to handle potential race conditions
       const { data: newAccount, error: insertError } = await supabase
         .from("accounts")
-        .insert({
-          user_id: userId,
-          phone_number: accountData.phone_number,
-          username: accountData.username,
-          display_name: accountData.display_name,
-          device_tag: accountData.device_tag,
-          password: accountData.password,
-          access_token: accountData.access_token,
-          token_type: accountData.token_type,
-          expires_in: accountData.expires_in,
-          token_created_at: accountData.token_created_at,
-        })
+        .upsert(
+          {
+            user_id: userId,
+            phone_number: accountData.phone_number,
+            username: accountData.username,
+            display_name: accountData.display_name,
+            device_tag: accountData.device_tag,
+            password: accountData.password,
+            access_token: accountData.access_token,
+            token_type: accountData.token_type,
+            expires_in: accountData.expires_in,
+            token_created_at: accountData.token_created_at,
+          },
+          {
+            onConflict: "phone_number", // Handle conflict on phone_number
+            ignoreDuplicates: false, // Update existing record if phone_number exists
+          }
+        )
         .select("id")
         .single();
 
