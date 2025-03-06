@@ -197,6 +197,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
         {/* Nav links with custom scrollbar */}
         <nav className="space-y-2 px-2 overflow-y-auto h-[calc(100vh-180px)] scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-full">
+          {/* Navigation Links */}
           <Link
             href="/"
             className={`block p-2 rounded-md transition-colors flex items-center ${

@@ -10,6 +10,7 @@ import {
   getAccount,
   getCacheData,
   setCacheData,
+  CONFIG,
 } from "@/lib/db";
 import Link from "next/link";
 import {
@@ -18,6 +19,8 @@ import {
   IconChevronUp,
   IconChevronDown,
 } from "@tabler/icons-react";
+import ImportExportButtons from "@/components/accounts/ImportExportButtons";
+import MigrateToSupabase from "@/components/MigrateToSupabase";
 
 interface Account {
   phone_number: string;
@@ -298,23 +301,14 @@ export default function ManageAccounts() {
     const loadAccounts = async () => {
       try {
         const savedAccounts = await getAllAccounts();
-        console.log("Saved accounts:", savedAccounts);
-
         // Force refresh mainnet balances for all accounts
         for (const account of savedAccounts) {
           if (account.credentials?.access_token) {
             try {
-              console.log(
-                `Refreshing mainnet balance for ${account.phone_number}`
-              );
               const mainnetBalance = await fetchMainnetBalance(
                 account.credentials.access_token
               );
               if (mainnetBalance) {
-                console.log(
-                  `Got fresh mainnet balance for ${account.phone_number}:`,
-                  mainnetBalance
-                );
                 await setCacheData(
                   account.phone_number,
                   "mainnet",
@@ -333,8 +327,6 @@ export default function ManageAccounts() {
         const accountsWithData = await Promise.all(
           savedAccounts.map(async (account) => {
             const userData = await getCacheData(account.phone_number, "user");
-            console.log(`User data for ${account.phone_number}:`, userData);
-
             const piData = await getCacheData(account.phone_number, "pi");
             let username = account.username;
             let balance = 0;
@@ -342,11 +334,6 @@ export default function ManageAccounts() {
 
             // Start with display_name from the account record first
             let display_name = account.display_name || "";
-            console.log(
-              `Initial display_name for ${account.phone_number}:`,
-              display_name
-            );
-
             let phone_verification = "";
             let facebook_verified = false;
             let password_status = false;
@@ -364,12 +351,6 @@ export default function ManageAccounts() {
             let total_pushed_balance = 0;
 
             if (userData && typeof userData === "object") {
-              // Log the structure of userData to debug
-              console.log(
-                `User data structure for ${account.phone_number}:`,
-                JSON.stringify(userData, null, 2)
-              );
-
               const userDataObj = userData as {
                 profile?: {
                   username?: string;
@@ -396,10 +377,6 @@ export default function ManageAccounts() {
                   userDataObj.profile?.name ||
                   userDataObj.profile?.display_name ||
                   "";
-                console.log(
-                  `Updated display_name for ${account.phone_number} from user data:`,
-                  display_name
-                );
               }
               phone_verification =
                 userDataObj.profile?.phone_verification || "";
@@ -447,12 +424,6 @@ export default function ManageAccounts() {
                 balance_ready?: number;
                 total_pushed_balance?: number;
               };
-
-              console.log(
-                `Mainnet data for ${account.phone_number}:`,
-                mainnetDataObj
-              );
-
               pending_balance = mainnetDataObj.pending_balance || 0;
               balance_ready = mainnetDataObj.balance_ready || 0;
               total_pushed_balance = mainnetDataObj.total_pushed_balance || 0;
@@ -463,11 +434,6 @@ export default function ManageAccounts() {
                   account.credentials.access_token
                 );
                 if (mainnetBalance) {
-                  console.log(
-                    `Mainnet balance data from API for ${account.phone_number}:`,
-                    mainnetBalance
-                  );
-
                   pending_balance = mainnetBalance.pending_balance || 0;
                   balance_ready = mainnetBalance.balance_ready || 0;
                   total_pushed_balance =
@@ -488,10 +454,6 @@ export default function ManageAccounts() {
             // If no display name but we have credentials, try to refresh user data
             if (!display_name && account.credentials?.access_token) {
               try {
-                console.log(
-                  `Refreshing user data for ${account.phone_number} due to missing display name`
-                );
-
                 const userResponse = await fetch("/api/me", {
                   headers: {
                     Authorization: `Bearer ${account.credentials.access_token}`,
@@ -501,11 +463,6 @@ export default function ManageAccounts() {
 
                 if (userResponse.ok) {
                   const freshUserData = await userResponse.json();
-                  console.log(
-                    `Fresh user data for ${account.phone_number}:`,
-                    freshUserData
-                  );
-
                   // Cache the refreshed data
                   await setCacheData(
                     account.phone_number,
@@ -523,11 +480,6 @@ export default function ManageAccounts() {
                       display_name: display_name,
                     };
                     await saveAccount(updatedAccount);
-
-                    console.log(
-                      `Updated display_name for ${account.phone_number} to:`,
-                      display_name
-                    );
                   }
                 }
               } catch (err) {
@@ -537,28 +489,6 @@ export default function ManageAccounts() {
                 );
               }
             }
-
-            console.log(`Final account object for ${account.phone_number}:`, {
-              username: username || account.phone_number,
-              display_name,
-              balance,
-              mining_status,
-              completed_sessions,
-              phone_verification,
-              facebook_verified,
-              password_status,
-              trusted_email,
-              email_verified,
-              kyc_eligible,
-              kyc_status,
-              kyc_detailed_status,
-              referred_by,
-              // Add mainnet balance data
-              pending_balance,
-              balance_ready,
-              total_pushed_balance,
-            });
-
             const finalAccount = {
               ...account,
               username: username || account.phone_number,
@@ -580,16 +510,6 @@ export default function ManageAccounts() {
               balance_ready,
               total_pushed_balance,
             };
-
-            console.log(
-              `Final account object for ${account.phone_number} with mainnet data:`,
-              {
-                pending_balance,
-                balance_ready,
-                total_pushed_balance,
-              }
-            );
-
             return finalAccount;
           })
         );
@@ -686,9 +606,6 @@ export default function ManageAccounts() {
           },
         });
         const userData = await userResponse.json();
-        console.log("User data from API during account creation:", userData);
-        console.log("Profile name:", userData.profile?.name);
-
         // Fetch mainnet balance data for the new account
         const mainnetBalance = await fetchMainnetBalance(
           loginData.credentials.access_token
@@ -788,6 +705,7 @@ export default function ManageAccounts() {
       {/* Mobile top bar */}
       <div className="md:hidden bg-blue-600 text-white p-4 flex justify-between items-center">
         <h1 className="text-xl font-bold">Manage Accounts</h1>
+
         <button onClick={() => setIsSidebarOpen(true)}>
           {/* Hamburger icon */}
           <svg
@@ -812,17 +730,27 @@ export default function ManageAccounts() {
 
         <div className="p-8">
           <div className="max-w-6xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
-            <div className="bg-blue-600 p-4">
+            <div className="bg-blue-600 p-4 flex flex-row justify-center align-center">
               <h1 className="text-2xl font-bold text-white text-center">
                 Manage Accounts
               </h1>
+              {CONFIG.ENABLE_SUPABASE_SYNC && (
+                <div className="mb-6">
+                  <MigrateToSupabase />
+                </div>
+              )}
             </div>
             <div className="p-6">
               {/* Add New Account Form */}
               <div className="mb-6 bg-gray-50 rounded-md p-4">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">
-                  Add New Account
-                </h2>
+                <div className="flex flex-row justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold text-gray-800">
+                    Add New Account
+                  </h2>
+                  {CONFIG.ENABLE_ACCOUNT_IMPORT_EXPORT && (
+                    <ImportExportButtons accountCount={accounts.length} />
+                  )}
+                </div>
                 <div className="flex flex-row md:flex-row items-end gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">

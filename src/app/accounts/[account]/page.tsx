@@ -90,9 +90,7 @@ export default function AccountPage() {
       if (cachedMainnetData)
         setMainnetData(cachedMainnetData as MainnetBalanceData);
       try {
-        console.log("Fetching account for:", params.account);
         const account = await getAccount(params.account as string);
-        console.log("Account data:", account);
 
         if (!account) {
           setErrors({
@@ -129,11 +127,6 @@ export default function AccountPage() {
             headers: headers,
             redirect: "follow" as RequestRedirect,
           });
-          console.log("Pi Response:", {
-            status: piResponse.status,
-            statusText: piResponse.statusText,
-          });
-
           if (!piResponse.ok) {
             const errorText = await piResponse.text();
             console.error("Pi Error Response:", errorText);
