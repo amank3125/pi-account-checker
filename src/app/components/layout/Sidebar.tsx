@@ -9,6 +9,7 @@ import {
   IconChevronRight,
   IconChevronLeft,
   IconArrowRight,
+  IconPick,
 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { getAllAccounts, StoredAccount, getCacheData } from "@/lib/db";
@@ -200,7 +201,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           {/* Navigation Links */}
           <Link
             href="/"
-            className={`block p-2 rounded-md transition-colors flex items-center ${
+            className={`flex p-2 rounded-md transition-colors items-center ${
               isActive("/") ? "bg-blue-600" : "hover:bg-gray-700"
             } ${!isExpanded ? "justify-center" : ""}`}
             onClick={onClose}
@@ -211,6 +212,20 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               <span className="text-sm md:text-base">Checker</span>
             )}
           </Link>
+
+          {/* Mining Link - Add this new section */}
+          <Link
+            href="/mine"
+            className={`flex p-2 rounded-md transition-colors items-center ${
+              isActive("/mine") ? "bg-blue-600" : "hover:bg-gray-700"
+            } ${!isExpanded ? "justify-center" : ""}`}
+            onClick={onClose}
+            title="Mining"
+          >
+            <IconPick className={`w-5 h-5 ${isExpanded ? "mr-2" : ""}`} />
+            {isExpanded && <span className="text-sm md:text-base">Mining</span>}
+          </Link>
+
           <div>
             <div className="flex items-center">
               <Link

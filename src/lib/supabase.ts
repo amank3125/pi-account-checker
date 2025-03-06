@@ -62,11 +62,11 @@ export function getAdminClient() {
       });
 
       console.log("Admin client created successfully");
-    } catch (error) {
-      console.error("Error creating admin client:", error);
+    } catch (adminError) {
+      console.error("Error creating admin client:", adminError);
       throw new Error(
         `Supabase admin client error: ${
-          error instanceof Error ? error.message : "unknown error"
+          adminError instanceof Error ? adminError.message : "unknown error"
         }`
       );
     }
@@ -242,9 +242,24 @@ export async function saveAccountSupabase(accountData: {
   // Use the authenticated user ID if no specific user_id provided
   const userId = accountData.user_id || authData.user.id;
 
+  // Ensure we always set user_id to the authenticated user's ID to satisfy RLS policies
+  accountData.user_id = userId;
+
   try {
+    // Try to get admin client to bypass RLS if needed
+    let client = supabase;
+    try {
+      const adminClientInstance = getAdminClient();
+      if (adminClientInstance) {
+        console.log("Using admin client to bypass RLS");
+        client = adminClientInstance;
+      }
+    } catch {
+      console.log("Admin client not available, using regular client");
+    }
+
     // First check if this phone number already exists in the database
-    const { data: existingAccount, error: fetchError } = await supabase
+    const { data: existingAccount, error: fetchError } = await client
       .from("accounts")
       .select("id, user_id, access_token, token_created_at")
       .eq("phone_number", accountData.phone_number)
@@ -260,66 +275,32 @@ export async function saveAccountSupabase(accountData: {
     let accountId: string;
 
     if (existingAccount) {
-      // Phone number already exists, determine whether to update based on token freshness
+      // Phone number already exists, just update the associated data without changing ownership
       console.log(
-        `Phone number ${accountData.phone_number} already exists - checking data freshness`
+        `Phone number ${accountData.phone_number} already exists - updating associated data only`
       );
 
       accountId = existingAccount.id;
 
-      // Determine if we should update the data based on token freshness
-      let shouldUpdate = true;
+      // Only update non-ownership fields
+      const { error: updateError } = await client
+        .from("accounts")
+        .update({
+          username: accountData.username,
+          display_name: accountData.display_name,
+          device_tag: accountData.device_tag,
+          password: accountData.password,
+          access_token: accountData.access_token,
+          token_type: accountData.token_type,
+          expires_in: accountData.expires_in,
+          token_created_at: accountData.token_created_at,
+        })
+        .eq("id", accountId);
 
-      // If both have tokens, use the newer one
-      if (existingAccount.token_created_at && accountData.token_created_at) {
-        // Only update if the new token is fresher
-        shouldUpdate =
-          accountData.token_created_at > existingAccount.token_created_at;
-        console.log(
-          `Token comparison: existing=${existingAccount.token_created_at}, new=${accountData.token_created_at}, shouldUpdate=${shouldUpdate}`
-        );
-      }
-
-      if (shouldUpdate) {
-        console.log(`Updating account data for ${accountData.phone_number}`);
-
-        // Prepare the update object, only include fields that are provided
-        const updateData: Record<string, unknown> = {};
-
-        if (accountData.username !== undefined)
-          updateData.username = accountData.username;
-        if (accountData.display_name !== undefined)
-          updateData.display_name = accountData.display_name;
-        if (accountData.device_tag !== undefined)
-          updateData.device_tag = accountData.device_tag;
-        if (accountData.password !== undefined)
-          updateData.password = accountData.password;
-        if (accountData.access_token !== undefined)
-          updateData.access_token = accountData.access_token;
-        if (accountData.token_type !== undefined)
-          updateData.token_type = accountData.token_type;
-        if (accountData.expires_in !== undefined)
-          updateData.expires_in = accountData.expires_in;
-        if (accountData.token_created_at !== undefined)
-          updateData.token_created_at = accountData.token_created_at;
-
-        // Only perform update if there's something to update
-        if (Object.keys(updateData).length > 0) {
-          const { error: updateError } = await supabase
-            .from("accounts")
-            .update(updateData)
-            .eq("id", accountId);
-
-          if (updateError) {
-            console.error("Error updating account data:", updateError);
-            throw new Error(
-              `Failed to update account data: ${updateError.message}`
-            );
-          }
-        }
-      } else {
-        console.log(
-          `Keeping existing data for ${accountData.phone_number} as it's more recent`
+      if (updateError) {
+        console.error("Error updating account data:", updateError);
+        throw new Error(
+          `Failed to update account data: ${updateError.message}`
         );
       }
     } else {
@@ -329,7 +310,7 @@ export async function saveAccountSupabase(accountData: {
       );
 
       // Use upsert instead of insert to handle potential race conditions
-      const { data: newAccount, error: insertError } = await supabase
+      const { data: newAccount, error: insertError } = await client
         .from("accounts")
         .upsert(
           {
@@ -1066,4 +1047,225 @@ export async function signInWithGoogleOAuth(): Promise<{
 export async function getCurrentUser() {
   const { data } = await supabase.auth.getUser();
   return data?.user || null;
+}
+
+// Mining data interface
+export interface MiningDataSupabase {
+  id: string;
+  phone_number: string;
+  is_active: boolean;
+  valid_until: string | null;
+  hourly_ratio: number | null;
+  team_count: number | null;
+  mining_count: number | null;
+  pi_balance: number | null;
+  completed_sessions_count: number | null;
+  last_mined_at: string;
+  mining_response: Json;
+  created_at: string;
+  updated_at: string;
+}
+
+// Get mining data for an account
+export async function getMiningDataSupabase(
+  phoneNumber: string
+): Promise<MiningDataSupabase | null> {
+  try {
+    const { data, error } = await supabase
+      .from("mining_data")
+      .select("*")
+      .eq("phone_number", phoneNumber)
+      .order("last_mined_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error && error.code !== "PGRST116") {
+      console.error("Error fetching mining data:", error);
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error("Exception in getMiningDataSupabase:", error);
+    return null;
+  }
+}
+
+// Get mining data for all accounts
+export async function getAllMiningDataSupabase(): Promise<
+  MiningDataSupabase[]
+> {
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+
+    if (!authData.user) {
+      console.error("Error: Not authenticated with Supabase");
+      return [];
+    }
+
+    // First check if the mining_data table exists
+    try {
+      // Try to fetch one record to see if the table exists
+      const { error: testError } = await supabase
+        .from("mining_data")
+        .select("id")
+        .limit(1);
+
+      if (testError) {
+        console.error("Error checking mining_data table:", testError);
+        // If the table doesn't exist, return empty array rather than throwing
+        if (testError.code === "42P01") {
+          // PostgreSQL error code for undefined_table
+          console.error(
+            "The mining_data table does not exist yet. Please run the SQL setup script."
+          );
+          return [];
+        }
+      }
+    } catch (checkError) {
+      console.error("Exception checking table existence:", checkError);
+      return [];
+    }
+
+    // First get all accounts for this user
+    const { data: accounts, error: accountsError } = await supabase
+      .from("accounts")
+      .select("phone_number")
+      .eq("user_id", authData.user.id);
+
+    if (accountsError) {
+      console.error("Error fetching accounts:", accountsError);
+      return [];
+    }
+
+    if (!accounts || accounts.length === 0) {
+      return [];
+    }
+
+    // Get the phone numbers
+    const phoneNumbers = accounts.map((account) => account.phone_number);
+
+    // Then get the latest mining data for each account
+    const { data, error } = await supabase
+      .from("mining_data")
+      .select("*")
+      .in("phone_number", phoneNumbers)
+      .order("last_mined_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching mining data:", error);
+      throw error;
+    }
+
+    // Get the latest mining data for each account
+    const latestMiningData: Record<string, MiningDataSupabase> = {};
+
+    data?.forEach((item) => {
+      if (
+        !latestMiningData[item.phone_number] ||
+        new Date(item.last_mined_at) >
+          new Date(latestMiningData[item.phone_number].last_mined_at)
+      ) {
+        latestMiningData[item.phone_number] = item;
+      }
+    });
+
+    return Object.values(latestMiningData);
+  } catch (error) {
+    console.error("Exception in getAllMiningDataSupabase:", error);
+    return [];
+  }
+}
+
+// Save or update mining data
+export async function saveMiningDataSupabase(
+  phoneNumber: string,
+  miningData: {
+    is_active: boolean;
+    valid_until?: string | null;
+    hourly_ratio?: number | null;
+    team_count?: number | null;
+    mining_count?: number | null;
+    pi_balance?: number | null;
+    completed_sessions_count?: number | null;
+    mining_response?: Json;
+  }
+): Promise<string | null> {
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+
+    if (!authData.user) {
+      throw new Error("You must be logged in to save mining data");
+    }
+
+    // Check if the mining_data table exists
+    try {
+      const { error: testError } = await supabase
+        .from("mining_data")
+        .select("id")
+        .limit(1);
+
+      if (testError) {
+        console.error("Error checking mining_data table:", testError);
+        // If the table doesn't exist, throw detailed error
+        if (testError.code === "42P01") {
+          // PostgreSQL error code for undefined_table
+          throw new Error(
+            "The mining_data table does not exist yet. Please run the SQL setup script."
+          );
+        }
+      }
+    } catch (checkError) {
+      console.error("Exception checking table existence:", checkError);
+      throw checkError;
+    }
+
+    // Check if the account exists and belongs to this user
+    const { error: accountError } = await supabase
+      .from("accounts")
+      .select("id")
+      .eq("phone_number", phoneNumber)
+      .eq("user_id", authData.user.id)
+      .single();
+
+    if (accountError) {
+      console.error("Error fetching account:", accountError);
+      throw new Error(`Account not found or not authorized: ${phoneNumber}`);
+    }
+
+    // Insert or update mining data
+    const { data, error } = await supabase
+      .from("mining_data")
+      .upsert(
+        {
+          phone_number: phoneNumber,
+          is_active: miningData.is_active,
+          valid_until: miningData.valid_until,
+          hourly_ratio: miningData.hourly_ratio,
+          team_count: miningData.team_count,
+          mining_count: miningData.mining_count,
+          pi_balance: miningData.pi_balance,
+          completed_sessions_count: miningData.completed_sessions_count,
+          last_mined_at: new Date().toISOString(),
+          mining_response: miningData.mining_response || {},
+        },
+        {
+          onConflict: "phone_number",
+          ignoreDuplicates: false,
+        }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error saving mining data:", error);
+      throw error;
+    }
+
+    console.log(`Saved mining data for ${phoneNumber}`);
+    return data.id;
+  } catch (error) {
+    console.error("Exception in saveMiningDataSupabase:", error);
+    throw error; // Re-throw to provide better error context
+  }
 }

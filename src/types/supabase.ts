@@ -82,6 +82,53 @@ export interface Database {
           is_stale?: boolean | null;
         };
       };
+      mining_data: {
+        Row: {
+          id: string;
+          phone_number: string;
+          is_active: boolean;
+          valid_until: string | null;
+          hourly_ratio: number | null;
+          team_count: number | null;
+          mining_count: number | null;
+          pi_balance: number | null;
+          completed_sessions_count: number | null;
+          last_mined_at: string;
+          mining_response: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          phone_number: string;
+          is_active?: boolean;
+          valid_until?: string | null;
+          hourly_ratio?: number | null;
+          team_count?: number | null;
+          mining_count?: number | null;
+          pi_balance?: number | null;
+          completed_sessions_count?: number | null;
+          last_mined_at?: string;
+          mining_response?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          phone_number?: string;
+          is_active?: boolean;
+          valid_until?: string | null;
+          hourly_ratio?: number | null;
+          team_count?: number | null;
+          mining_count?: number | null;
+          pi_balance?: number | null;
+          completed_sessions_count?: number | null;
+          last_mined_at?: string;
+          mining_response?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
     };
     Views: {
       [_ in never]: never;
