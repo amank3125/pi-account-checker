@@ -1005,10 +1005,20 @@ export async function signInWithGoogleOAuth(): Promise<{
   error?: string;
 }> {
   try {
+    // Get the base URL from environment variable or fallback to window.location.origin
+    const baseUrl =
+      typeof process !== "undefined" && process.env.NEXT_PUBLIC_URL
+        ? process.env.NEXT_PUBLIC_URL
+        : typeof window !== "undefined"
+        ? window.location.origin
+        : "http://localhost:3000";
+
+    console.log(`Using redirect URL: ${baseUrl}/auth/callback`);
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${baseUrl}/auth/callback`,
       },
     });
 

@@ -10,6 +10,9 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     async function handleAuthCallback() {
+      // Log the current URL for debugging
+      console.log("Auth callback URL:", window.location.href);
+
       // Process the OAuth callback
       const { data, error } = await supabase.auth.getSession();
 
@@ -27,7 +30,7 @@ export default function AuthCallbackPage() {
         );
         toast.success("Successfully connected your Google account!");
 
-        // Redirect back to the migrate page
+        // Redirect back to the accounts page
         router.push("/accounts");
       } else {
         console.error("No session found after OAuth callback");
