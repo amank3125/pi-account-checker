@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 import { getAllAccounts } from "@/lib/db";
 
@@ -33,33 +33,199 @@ export default function MigrateToSupabase() {
 
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
-  // Auto-sync with Supabase when user is authenticated
+  // Add session validation tracking ref to prevent loops
+  const sessionValidationInProgress = useRef(false);
+  const lastSessionCheck = useRef(0);
+  const HOUR_IN_MS = 60 * 60 * 1000;
 
+  // Improved autoSyncData function with throttling
+  const autoSyncData = useCallback(async () => {
+    // EMERGENCY FIX: Exit immediately if validation is in progress or called recently
+    if (sessionValidationInProgress.current) {
+      console.log("Session validation already in progress, skipping");
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastSessionCheck.current < HOUR_IN_MS) {
+      console.log("Session was checked less than 1 hour ago, skipping");
+      return;
+    }
+
+    // Track that we're checking
+    sessionValidationInProgress.current = true;
+    lastSessionCheck.current = now;
+
+    try {
+      console.log("Checking for valid Supabase session...");
+
+      // Check localStorage first to avoid unnecessary API calls
+      const hasRecentSessionCheck = localStorage.getItem(
+        "lastSessionValidation"
+      );
+      if (
+        hasRecentSessionCheck &&
+        now - parseInt(hasRecentSessionCheck) < HOUR_IN_MS
+      ) {
+        const sessionValid = localStorage.getItem("hasValidSession") === "true";
+        console.log(
+          `Using cached session validation: ${
+            sessionValid ? "Valid" : "Invalid"
+          }`
+        );
+
+        if (!sessionValid) {
+          // If we know we don't have a valid session, stop processing
+          sessionValidationInProgress.current = false;
+          return;
+        }
+      } else {
+        // Only validate session via API if we don't have recent validation
+        const isValid = await ensureValidSession();
+
+        // Store result in localStorage to reduce future calls
+        localStorage.setItem("lastSessionValidation", now.toString());
+        localStorage.setItem("hasValidSession", isValid.toString());
+
+        if (!isValid) {
+          console.log("No valid Supabase session found");
+          sessionValidationInProgress.current = false;
+          return;
+        }
+      }
+
+      // Get local accounts that need migration
+      const oldAccounts = await getAllAccounts();
+
+      if (!oldAccounts || oldAccounts.length === 0) {
+        console.log("No accounts found for migration");
+        sessionValidationInProgress.current = false;
+        return;
+      }
+
+      // Check if we've recently migrated
+      const lastMigrationTime = localStorage.getItem("lastMigrationTime");
+      if (lastMigrationTime && now - parseInt(lastMigrationTime) < HOUR_IN_MS) {
+        console.log("Accounts were migrated less than 1 hour ago, skipping");
+        sessionValidationInProgress.current = false;
+        return;
+      }
+
+      // Update UI state
+      setSyncStatus("syncing");
+
+      // Migrate accounts with our optimized function
+      const migratedCount = await migrateToSupabase(oldAccounts);
+
+      // Update timestamp even if no accounts were migrated
+      localStorage.setItem("lastMigrationTime", now.toString());
+
+      if (migratedCount > 0) {
+        console.log(`Successfully migrated ${migratedCount} accounts`);
+        setSyncStatus("success");
+        setMigratedCount(migratedCount);
+        setIsUserSynced(true);
+      } else {
+        console.log("No accounts needed migration at this time");
+        setSyncStatus("success");
+        setIsUserSynced(true);
+      }
+    } catch (error) {
+      console.error("Error in auto-sync:", error);
+      setSyncStatus("error");
+    } finally {
+      // Always reset the flag when done
+      sessionValidationInProgress.current = false;
+    }
+  }, []);
+
+  // Use effect to check user authentication status once on mount
+  useEffect(() => {
+    // Only run on first mount and if user is authenticated
+    if (status === "authenticated" && session?.user && !isUserSynced) {
+      console.log("User is authenticated, checking for sync needs");
+      autoSyncData();
+    }
+  }, [status, session, autoSyncData, isUserSynced]);
+
+  // Check if we already have a locally stored sync timestamp
+  useEffect(() => {
+    // Try to load last sync time from localStorage
+    const storedSyncTime = localStorage.getItem("lastSupabaseSync");
+    if (storedSyncTime) {
+      try {
+        const timestamp = parseInt(storedSyncTime, 10);
+        if (!isNaN(timestamp)) {
+          setLastSyncTime(new Date(timestamp));
+        }
+      } catch (e) {
+        console.error("Error parsing stored sync time:", e);
+      }
+    }
+  }, []);
+
+  // Auto-sync with Supabase when user is authenticated
   useEffect(() => {
     const syncWithSupabase = async () => {
       if (!session?.user) return;
 
-      try {
-        // Check if we already have a Supabase session
+      // Check if we've synced recently - use a longer cooldown period (15 minutes)
+      const SYNC_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+      if (lastSyncTime) {
+        const now = new Date();
+        const timeSinceLastSync = now.getTime() - lastSyncTime.getTime();
 
+        if (timeSinceLastSync < SYNC_COOLDOWN_MS) {
+          console.log(
+            `Skipping sync - last sync was ${Math.round(
+              timeSinceLastSync / 1000
+            )} seconds ago`
+          );
+          return;
+        }
+      }
+
+      try {
+        // Check if we already have a Supabase session - use cached check when possible
+        const sessionKey = "supabaseSessionValid";
+        const cachedSession = localStorage.getItem(sessionKey);
+        const sessionCacheTime = localStorage.getItem(`${sessionKey}_time`);
+
+        // If we have a cached session status that's less than 30 minutes old, use it
+        if (cachedSession === "true" && sessionCacheTime) {
+          const cacheAge = Date.now() - parseInt(sessionCacheTime, 10);
+          if (cacheAge < 30 * 60 * 1000) {
+            // 30 minutes
+            console.log("Using cached Supabase session status");
+            setIsUserSynced(true);
+            setSyncError(null);
+            autoSyncData();
+            return;
+          }
+        }
+
+        // No valid cached session, check with Supabase
         const { data: sessionData } = await supabase.auth.getSession();
 
         if (sessionData?.session) {
           console.log("Active Supabase session found, auto-syncing data");
 
+          // Cache the session status
+          localStorage.setItem(sessionKey, "true");
+          localStorage.setItem(`${sessionKey}_time`, Date.now().toString());
+
           setIsUserSynced(true);
-
           setSyncError(null);
-
           autoSyncData();
-
           return;
         }
 
+        // Clear cached session status
+        localStorage.removeItem(sessionKey);
+        localStorage.removeItem(`${sessionKey}_time`);
+
         // No Supabase session, trigger automatic Google sign-in
-
         console.log("No Supabase session found, initiating Google sign-in");
-
         setIsAuthenticating(true);
 
         try {
@@ -69,29 +235,22 @@ export default function MigrateToSupabase() {
             setSyncError(
               `Failed to auto-connect with Supabase: ${result.error}`
             );
-
             setSyncStatus("error");
           }
         } catch (error) {
           console.error("Error auto-connecting to Supabase:", error);
-
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
-
           setSyncError(`Auto-connection failed: ${errorMessage}`);
-
           setSyncStatus("error");
         } finally {
           setIsAuthenticating(false);
         }
       } catch (error) {
         console.error("Error during Supabase sync:", error);
-
         const errorMessage =
           error instanceof Error ? error.message : "Unknown error";
-
         setSyncError(errorMessage);
-
         setSyncStatus("error");
       }
     };
@@ -99,95 +258,21 @@ export default function MigrateToSupabase() {
     if (status === "authenticated") {
       syncWithSupabase();
     }
-  }, [session, status]);
+  }, [session, status, lastSyncTime, autoSyncData]);
 
-  // Define autoSyncData as a useCallback to include it in dependency array
-
-  const autoSyncData = useCallback(async () => {
-    if (syncStatus === "syncing" || !session?.user) return;
-
-    setSyncStatus("syncing");
-
-    try {
-      // First validate session and permissions
-
-      console.log("Validating Supabase session...");
-
-      const isValid = await ensureValidSession();
-
-      if (!isValid) {
-        setSyncStatus("error");
-
-        setSyncError(
-          "Authentication session invalid. Please try refreshing the page."
-        );
-
-        console.error("Permission validation failed");
-
-        return;
-      }
-
-      // Get all accounts from IndexedDB
-
-      const accounts = await getAllAccounts();
-
-      if (accounts.length === 0) {
-        console.log("No accounts found to sync");
-
-        setSyncStatus("success"); // Still mark as success since there's nothing to do
-
-        setLastSyncTime(new Date());
-
-        return;
-      }
-
-      console.log(`Starting sync for ${accounts.length} accounts...`);
-
-      // Migrate accounts to Supabase
-
-      const count = await migrateToSupabase(accounts);
-
-      setMigratedCount(count);
-
-      setSyncStatus("success");
-
-      setLastSyncTime(new Date());
-
-      console.log(`Successfully synced ${count} accounts with Supabase!`);
-    } catch (error) {
-      console.error("Error during data sync:", error);
-
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-
-      setSyncError(`Sync failed: ${errorMessage}`);
-
-      setSyncStatus("error");
-    }
-  }, [
-    session,
-
-    syncStatus,
-
-    setSyncStatus,
-
-    setSyncError,
-
-    setMigratedCount,
-
-    setLastSyncTime,
-  ]);
-
-  // Manual sync trigger if automatic sync fails
-
+  // Handle manual sync with throttling
   const handleManualSync = () => {
-    if (syncStatus === "syncing") return;
+    const now = Date.now();
+    const lastSyncAttempt = localStorage.getItem("lastManualSyncAttempt");
 
-    if (!isUserSynced) {
-      signInWithGoogleOAuth();
-    } else {
-      autoSyncData();
+    // Prevent rapid clicking by enforcing a 10-second cooldown
+    if (lastSyncAttempt && now - parseInt(lastSyncAttempt) < 10000) {
+      console.log("Manual sync was attempted too recently, please wait");
+      return;
     }
+
+    localStorage.setItem("lastManualSyncAttempt", now.toString());
+    autoSyncData();
   };
 
   // Render just the database icon

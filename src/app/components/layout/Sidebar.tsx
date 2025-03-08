@@ -10,15 +10,36 @@ import {
   IconChevronLeft,
   IconArrowRight,
   IconPick,
+  IconHome,
+  IconUser,
+  IconPickaxe,
+  IconDatabase,
 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
-import { getAllAccounts, StoredAccount, getCacheData } from "@/lib/db";
+import { getAllAccounts, getCacheData } from "@/lib/db";
 import { IconCurrencyDollar } from "@tabler/icons-react";
+import { ensureValidSession, getAllAccountsSupabase } from "@/lib/supabase";
 
-interface AccountWithUsername extends StoredAccount {
-  balance: number;
-  balance_ready?: number;
+// Define a interface that can work with both account types
+interface GenericAccount {
+  id?: string;
+  phone_number: string;
   username?: string;
+  display_name?: string;
+  device_tag?: string;
+  password?: string;
+  access_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  token_created_at?: number;
+  added_at?: string | number; // Support both string and number formats
+}
+
+interface AccountWithUsername extends GenericAccount {
+  username?: string;
+  balance?: number;
+  balance_ready?: number;
+  mining_status?: string;
 }
 
 interface SidebarProps {
@@ -31,11 +52,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const [accounts, setAccounts] = useState<AccountWithUsername[]>([]);
   const [isAccountsOpen, setIsAccountsOpen] = useState(true);
   const [piPrice, setPiPrice] = useState<number | null>(null);
-  const [isExpanded, setIsExpanded] = useState(() => {
-    if (typeof window === "undefined") return true;
-    const savedState = localStorage.getItem("sidebarExpanded");
-    return savedState === null || savedState === "true";
-  });
+  const [isExpanded, setIsExpanded] = useState(true); // Default to true for server rendering
+  const [isLoading, setIsLoading] = useState(false);
 
   // Fetch Pi price
   useEffect(() => {
@@ -57,72 +75,35 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     return () => clearInterval(interval);
   }, []);
 
+  // Load accounts and their data
   useEffect(() => {
-    const loadAccounts = async () => {
-      const savedAccounts = await getAllAccounts();
-      const accountsWithUsernames = await Promise.all(
-        savedAccounts.map(async (account) => {
-          const userData = await getCacheData(account.phone_number, "user");
-          const piData = await getCacheData(account.phone_number, "pi");
-          const mainnetData = await getCacheData(
-            account.phone_number,
-            "mainnet"
-          );
-
-          let username = account.username;
-          let balance = 0;
-          let balance_ready = 0;
-          let mining_status = "Inactive";
-
-          if (!username && userData && typeof userData === "object") {
-            const userDataObj = userData as {
-              profile?: { username?: string; display_name?: string };
-            };
-            username =
-              userDataObj.profile?.username ||
-              userDataObj.profile?.display_name;
-          }
-
-          if (piData && typeof piData === "object") {
-            const piDataObj = piData as {
-              balance?: number;
-              mining_status?: { is_mining: boolean };
-            };
-            balance = piDataObj.balance || 0;
-            mining_status = piDataObj.mining_status?.is_mining
-              ? "Active"
-              : "Inactive";
-          }
-
-          if (mainnetData && typeof mainnetData === "object") {
-            const mainnetDataObj = mainnetData as { balance_ready?: number };
-            balance_ready = mainnetDataObj.balance_ready || 0;
-          }
-
-          return {
-            ...account,
-            username: username || account.phone_number,
-            balance,
-            balance_ready,
-            mining_status,
-          };
-        })
-      );
-      // Sort accounts by balance (largest first) - now using balance_ready
-      const sortedAccounts = [...accountsWithUsernames].sort(
-        (a, b) => (b.balance_ready || 0) - (a.balance_ready || 0)
-      );
-      setAccounts(sortedAccounts || []);
-    };
-
-    // Initial load
+    // Load accounts data on mount
     loadAccounts();
 
-    // Set up interval to refresh data every minute
-    const interval = setInterval(loadAccounts, 60000);
+    // Create a timer that checks if we need to refresh data - once per hour
+    const refreshInterval = setInterval(() => {
+      const now = Date.now();
+      const lastFetchTime = localStorage.getItem("lastAccountFetchTime");
 
-    // Cleanup interval on component unmount
-    return () => clearInterval(interval);
+      // Only refresh if it's been more than 1 hour since last fetch
+      if (!lastFetchTime || now - parseInt(lastFetchTime) >= 60 * 60 * 1000) {
+        console.log("Hourly refresh triggered");
+        loadAccounts();
+      }
+    }, 5 * 60 * 1000); // Check every 5 minutes, but only refresh if hour has passed
+
+    return () => {
+      clearInterval(refreshInterval);
+    };
+  }, []);
+
+  // Update the useEffect for isExpanded to run only on client
+  useEffect(() => {
+    // Only run on the client side
+    const savedState = localStorage.getItem("sidebarExpanded");
+    if (savedState === "false") {
+      setIsExpanded(false);
+    }
   }, []);
 
   const isActive = (path: string) => pathname === path;
@@ -142,9 +123,296 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     setIsExpanded(!isExpanded);
   };
 
+  // Modify loadAccounts function to check timestamps and use aggressive caching
+  const loadAccounts = async () => {
+    setIsLoading(true);
+    console.log("Loading accounts in sidebar...");
+
+    // Check when accounts were last loaded - implement 1 hour caching
+    const HOUR_IN_MS = 60 * 60 * 1000; // 1 hour in milliseconds
+    const now = Date.now();
+    const lastFetchTime = localStorage.getItem("lastAccountFetchTime");
+    const cachedAccountsString = localStorage.getItem("cachedAccounts");
+
+    // If we have cached data and it's less than 1 hour old, use it
+    if (
+      lastFetchTime &&
+      cachedAccountsString &&
+      now - parseInt(lastFetchTime) < HOUR_IN_MS
+    ) {
+      try {
+        const cachedAccounts = JSON.parse(cachedAccountsString);
+        if (Array.isArray(cachedAccounts) && cachedAccounts.length > 0) {
+          console.log("Using cached account data (< 1 hour old)");
+          setAccounts(cachedAccounts);
+          setIsLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.error("Error parsing cached accounts:", e);
+      }
+    }
+
+    try {
+      // Choose data source based on what's available
+      let accountsData: GenericAccount[] = [];
+
+      // Check if we have Supabase session
+      const hasSupabaseSession = await ensureValidSession();
+
+      if (hasSupabaseSession) {
+        // Get accounts from Supabase
+        accountsData = await getAllAccountsSupabase();
+      } else {
+        // Fallback to IndexedDB
+        accountsData = await getAllAccounts();
+      }
+
+      if (!accountsData || accountsData.length === 0) {
+        console.log("No accounts found");
+        setIsLoading(false);
+        return;
+      }
+
+      const accountMap = new Map<string, AccountWithUsername>();
+
+      // Initialize account objects
+      accountsData.forEach((account) => {
+        accountMap.set(account.phone_number, {
+          ...account,
+          balance: 0,
+          balance_ready: 0,
+        });
+      });
+
+      // Find accounts with cached data to avoid unnecessary API calls
+      const phoneNumbers = accountsData.map((a) => a.phone_number);
+
+      // Use batch processing to minimize API calls
+      if (phoneNumbers.length > 0) {
+        // Process in batches to avoid overwhelming the API
+        const BATCH_SIZE = 5;
+
+        for (let i = 0; i < phoneNumbers.length; i += BATCH_SIZE) {
+          const batchPhoneNumbers = phoneNumbers.slice(i, i + BATCH_SIZE);
+          const cachePromises: Promise<void>[] = [];
+
+          // Fetch user data for this batch
+          for (const phoneNumber of batchPhoneNumbers) {
+            // Check if we have a recent cache for this data type before fetching
+            const userCacheKey = `user_cache_${phoneNumber}`;
+            const piCacheKey = `pi_cache_${phoneNumber}`;
+            const mainnetCacheKey = `mainnet_cache_${phoneNumber}`;
+
+            const userCacheTime = localStorage.getItem(`${userCacheKey}_time`);
+            const piCacheTime = localStorage.getItem(`${piCacheKey}_time`);
+            const mainnetCacheTime = localStorage.getItem(
+              `${mainnetCacheKey}_time`
+            );
+
+            // Only fetch user data if cache is expired or doesn't exist
+            if (!userCacheTime || now - parseInt(userCacheTime) > HOUR_IN_MS) {
+              cachePromises.push(
+                getCacheData(phoneNumber, "user")
+                  .then((userData) => {
+                    if (userData && typeof userData === "object") {
+                      const userDataObj = userData as {
+                        profile?: { username?: string };
+                      };
+                      const acct = accountMap.get(phoneNumber);
+                      if (acct && userDataObj.profile?.username) {
+                        acct.username = userDataObj.profile.username;
+                      }
+
+                      // Update the cache timestamp
+                      localStorage.setItem(
+                        userCacheKey,
+                        JSON.stringify(userData)
+                      );
+                      localStorage.setItem(
+                        `${userCacheKey}_time`,
+                        now.toString()
+                      );
+                    }
+                  })
+                  .catch(() => {
+                    /* Ignore errors */
+                  })
+              );
+            } else {
+              // Use cached user data
+              try {
+                const cachedUserData = localStorage.getItem(userCacheKey);
+                if (cachedUserData) {
+                  const userData = JSON.parse(cachedUserData);
+                  if (userData && typeof userData === "object") {
+                    const userDataObj = userData as {
+                      profile?: { username?: string };
+                    };
+                    const acct = accountMap.get(phoneNumber);
+                    if (acct && userDataObj.profile?.username) {
+                      acct.username = userDataObj.profile.username;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error("Error parsing cached user data:", e);
+              }
+            }
+
+            // Only fetch PI data if cache is expired or doesn't exist
+            if (!piCacheTime || now - parseInt(piCacheTime) > HOUR_IN_MS) {
+              cachePromises.push(
+                getCacheData(phoneNumber, "pi")
+                  .then((piData) => {
+                    if (piData && typeof piData === "object") {
+                      const piDataObj = piData as {
+                        balance?: number;
+                        mining_status?: { is_mining: boolean };
+                      };
+                      const acct = accountMap.get(phoneNumber);
+                      if (acct) {
+                        acct.balance = piDataObj.balance || 0;
+                        acct.mining_status = piDataObj.mining_status?.is_mining
+                          ? "Active"
+                          : "Inactive";
+                      }
+
+                      // Update the cache timestamp
+                      localStorage.setItem(piCacheKey, JSON.stringify(piData));
+                      localStorage.setItem(
+                        `${piCacheKey}_time`,
+                        now.toString()
+                      );
+                    }
+                  })
+                  .catch(() => {
+                    /* Ignore errors */
+                  })
+              );
+            } else {
+              // Use cached PI data
+              try {
+                const cachedPiData = localStorage.getItem(piCacheKey);
+                if (cachedPiData) {
+                  const piData = JSON.parse(cachedPiData);
+                  if (piData && typeof piData === "object") {
+                    const piDataObj = piData as {
+                      balance?: number;
+                      mining_status?: { is_mining: boolean };
+                    };
+                    const acct = accountMap.get(phoneNumber);
+                    if (acct) {
+                      acct.balance = piDataObj.balance || 0;
+                      acct.mining_status = piDataObj.mining_status?.is_mining
+                        ? "Active"
+                        : "Inactive";
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error("Error parsing cached pi data:", e);
+              }
+            }
+
+            // Only fetch mainnet data if cache is expired or doesn't exist
+            if (
+              !mainnetCacheTime ||
+              now - parseInt(mainnetCacheTime) > HOUR_IN_MS
+            ) {
+              cachePromises.push(
+                getCacheData(phoneNumber, "mainnet")
+                  .then((mainnetData) => {
+                    if (mainnetData && typeof mainnetData === "object") {
+                      const mainnetDataObj = mainnetData as {
+                        balance_ready?: number;
+                      };
+                      const acct = accountMap.get(phoneNumber);
+                      if (acct)
+                        acct.balance_ready = mainnetDataObj.balance_ready || 0;
+
+                      // Update the cache timestamp
+                      localStorage.setItem(
+                        mainnetCacheKey,
+                        JSON.stringify(mainnetData)
+                      );
+                      localStorage.setItem(
+                        `${mainnetCacheKey}_time`,
+                        now.toString()
+                      );
+                    }
+                  })
+                  .catch(() => {
+                    /* Ignore errors */
+                  })
+              );
+            } else {
+              // Use cached mainnet data
+              try {
+                const cachedMainnetData = localStorage.getItem(mainnetCacheKey);
+                if (cachedMainnetData) {
+                  const mainnetData = JSON.parse(cachedMainnetData);
+                  if (mainnetData && typeof mainnetData === "object") {
+                    const mainnetDataObj = mainnetData as {
+                      balance_ready?: number;
+                    };
+                    const acct = accountMap.get(phoneNumber);
+                    if (acct)
+                      acct.balance_ready = mainnetDataObj.balance_ready || 0;
+                  }
+                }
+              } catch (e) {
+                console.error("Error parsing cached mainnet data:", e);
+              }
+            }
+          }
+
+          // Only wait for promises if there are any (avoid empty Promise.all)
+          if (cachePromises.length > 0) {
+            await Promise.all(cachePromises);
+          }
+
+          // Small delay between batches if we have more batches to process
+          if (i + BATCH_SIZE < phoneNumbers.length) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        }
+      }
+
+      const accountsWithData: AccountWithUsername[] = [...accountMap.values()];
+
+      // Sort accounts by balance (descending)
+      accountsWithData.sort((a, b) => {
+        const balanceA = a.balance || 0;
+        const balanceB = b.balance || 0;
+        return balanceB - balanceA;
+      });
+
+      // Update state with processed accounts
+      setAccounts(accountsWithData);
+
+      // Store the account data in localStorage for caching
+      localStorage.setItem("cachedAccounts", JSON.stringify(accountsWithData));
+      localStorage.setItem("lastAccountFetchTime", now.toString());
+    } catch (error) {
+      console.error("Error in loadAccounts:", error);
+    }
+
+    setIsLoading(false);
+  };
+
+  // Inside the Sidebar component, after all state declarations but before the JSX
+  const navItems = [
+    { path: "/", icon: IconHome, label: "Dashboard" },
+    { path: "/account", icon: IconUser, label: "Account" },
+    { path: "/mine", icon: IconPick, label: "Mining" },
+    { path: "/accounts", icon: IconUsers, label: "Accounts" },
+    // Add other items as needed
+  ];
+
   return (
     <>
-      {/* Collapsed sidebar button - only visible when sidebar is collapsed on desktop */}
+      {/* Collapsed sidebar button - use client-side only rendering with useEffect */}
       {!isExpanded && (
         <div className="fixed top-16 left-0 z-40 hidden md:flex md:items-center md:justify-center md:w-20 md:mt-4">
           <button
@@ -158,15 +426,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       )}
 
       <div
-        className={`fixed top-0 left-0 z-50 h-screen bg-gray-800 text-white transform
-                    transition-all duration-500 ease-in-out overflow-hidden will-change-transform will-change-width
-                    ${isOpen ? "translate-x-0" : "-translate-x-full"}
-                    md:static md:translate-x-0 md:h-screen md:sticky md:top-0
-                    ${
-                      isExpanded
-                        ? "w-56 sm:w-60 md:w-64 min-w-[14rem]"
-                        : "md:w-20"
-                    }`}
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col overflow-y-auto bg-white shadow-lg transition-all duration-300 dark:bg-gray-900 ${
+          isOpen ? "w-full" : isExpanded ? "w-64" : "w-20"
+        } ${isOpen ? "" : "border-r border-gray-200 dark:border-gray-800"}`}
       >
         {/* Toggle button - visible in expanded desktop mode */}
         <div className="absolute top-5 -right-2 z-50 flex space-x-2">
@@ -196,106 +458,30 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           )}
         </div>
 
-        {/* Nav links with custom scrollbar */}
-        <nav className="space-y-2 px-2 overflow-y-auto h-[calc(100vh-180px)] scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-full">
-          {/* Navigation Links */}
-          <Link
-            href="/"
-            className={`flex p-2 rounded-md transition-colors items-center ${
-              isActive("/") ? "bg-blue-600" : "hover:bg-gray-700"
-            } ${!isExpanded ? "justify-center" : ""}`}
-            onClick={onClose}
-            title="Checker"
-          >
-            <IconSearch className={`w-5 h-5 ${isExpanded ? "mr-2" : ""}`} />
-            {isExpanded && (
-              <span className="text-sm md:text-base">Checker</span>
-            )}
-          </Link>
-
-          {/* Mining Link - Add this new section */}
-          <Link
-            href="/mine"
-            className={`flex p-2 rounded-md transition-colors items-center ${
-              isActive("/mine") ? "bg-blue-600" : "hover:bg-gray-700"
-            } ${!isExpanded ? "justify-center" : ""}`}
-            onClick={onClose}
-            title="Mining"
-          >
-            <IconPick className={`w-5 h-5 ${isExpanded ? "mr-2" : ""}`} />
-            {isExpanded && <span className="text-sm md:text-base">Mining</span>}
-          </Link>
-
-          <div>
-            <div className="flex items-center">
-              <Link
-                href="/accounts"
-                className={`flex-1 flex items-center p-2 rounded-md transition-colors ${
-                  pathname.startsWith("/accounts")
-                    ? "bg-blue-600"
-                    : "hover:bg-gray-700"
-                } ${!isExpanded ? "justify-center" : ""}`}
-                onClick={onClose}
-                title="Manage Accounts"
-              >
-                <IconUsers
-                  className={`w-5 h-5 flex-shrink-0 ${
-                    isExpanded ? "mr-2" : ""
-                  }`}
-                />
-                {isExpanded && (
-                  <span className="text-sm md:text-base truncate">
-                    Manage Accounts
-                    {accounts.length > 0 && isExpanded && (
-                      <button
-                        onClick={() => setIsAccountsOpen(!isAccountsOpen)}
-                        className="p-1 ml-8 rounded-md hover:bg-white hover:text-blue-800 flex-shrink-0"
-                      >
-                        {isAccountsOpen ? (
-                          <IconChevronDown className="w-4 h-4" />
-                        ) : (
-                          <IconChevronRight className="w-4 h-4" />
-                        )}
-                      </button>
-                    )}
-                  </span>
-                )}
-              </Link>
-            </div>
-
-            {isAccountsOpen && accounts.length > 0 && isExpanded && (
-              <div className="ml-2 mt-2 space-y-1 overflow-y-auto max-h-[60vh] scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-full pr-1">
-                {accounts.map((account, index) => (
-                  <Link
-                    key={account.phone_number}
-                    href={`/accounts/${account.phone_number}`}
-                    className={`block p-1.5 rounded-md text-xs transition-colors ${
-                      pathname === `/accounts/${account.phone_number}`
-                        ? "bg-blue-600"
-                        : "hover:bg-gray-700"
-                    }`}
-                    onClick={onClose}
-                  >
-                    <div className="flex justify-between items-center gap-1 w-full">
-                      <div className="flex items-center min-w-0 flex-shrink">
-                        <span className="text-gray-400 mr-1 flex-shrink-0">
-                          {index + 1}.
-                        </span>
-                        <span className="truncate">
-                          {account.username || account.phone_number}
-                        </span>
-                      </div>
-                      {account.balance_ready !== undefined && (
-                        <span className="flex-shrink-0 opacity-75 text-xs whitespace-nowrap">
-                          {account.balance_ready?.toFixed(2)} π
-                        </span>
-                      )}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+        {/* Navigation links */}
+        <nav className="mt-5 px-2">
+          {navItems.map((item) => (
+            <Link
+              key={item.path}
+              href={item.path}
+              className={`flex items-center px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                isActive(item.path)
+                  ? "bg-gray-100 text-blue-600 dark:bg-gray-700 dark:text-blue-400"
+                  : "text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+              }`}
+            >
+              <item.icon
+                className={`mr-3 h-5 w-5 ${
+                  isActive(item.path)
+                    ? "text-blue-500 dark:text-blue-400"
+                    : "text-gray-400 dark:text-gray-500"
+                }`}
+              />
+              {isExpanded ? (
+                <span className="truncate">{item.label}</span>
+              ) : null}
+            </Link>
+          ))}
         </nav>
 
         {/* Footer (total balance) */}
@@ -336,6 +522,13 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 </span>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Loading state indicator */}
+        {isLoading && (
+          <div className="text-center py-2 text-gray-500 text-sm">
+            Loading accounts...
           </div>
         )}
       </div>

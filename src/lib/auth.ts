@@ -53,13 +53,6 @@ export const authOptions: NextAuthOptions = {
       if (!user.email) return false;
 
       try {
-        // Log the sign-in for monitoring
-        console.log(`User ${user.email} signed in successfully with NextAuth`);
-
-        // Don't try to create Supabase user here since this runs on the server side
-        // and we need client components to work with Supabase auth
-        // We'll handle this in a client component after the user is redirected
-
         return true;
       } catch (error) {
         console.error("Error during sign-in:", error);

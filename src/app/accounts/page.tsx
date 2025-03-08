@@ -60,9 +60,6 @@ async function fetchMainnetBalance(accessToken: string) {
         "User-Agent":
           "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15.0 Safari/604.1",
         Accept: "application/json, text/plain, */*",
-        Origin: "https://socialchain.app",
-        Referer: "https://socialchain.app/",
-        Host: "socialchain.app",
       },
     });
 
@@ -300,146 +297,80 @@ export default function ManageAccounts() {
   useEffect(() => {
     const loadAccounts = async () => {
       try {
+        // Get accounts from local storage first
         const savedAccounts = await getAllAccounts();
-        // Force refresh mainnet balances for all accounts
+
+        // Track which accounts need mainnet balance updates
+        const accountsNeedingBalanceUpdate = [];
+
+        // Create a map to store account data for faster lookups
+        const accountDataMap = new Map();
+
+        // Create a batch of promises for all cache data fetches
+        const cachePromises = [];
+
+        // First, collect all accounts and their cached data
         for (const account of savedAccounts) {
-          if (account.credentials?.access_token) {
-            try {
-              const mainnetBalance = await fetchMainnetBalance(
-                account.credentials.access_token
-              );
-              if (mainnetBalance) {
-                await setCacheData(
-                  account.phone_number,
-                  "mainnet",
-                  mainnetBalance
-                );
+          const phoneNumber = account.phone_number;
+          accountDataMap.set(phoneNumber, { ...account });
+
+          // Queue promises to fetch cache data for all accounts
+          cachePromises.push(
+            getCacheData(phoneNumber, "user").then((userData) => {
+              if (userData) accountDataMap.get(phoneNumber).userData = userData;
+            })
+          );
+
+          cachePromises.push(
+            getCacheData(phoneNumber, "pi").then((piData) => {
+              if (piData) accountDataMap.get(phoneNumber).piData = piData;
+            })
+          );
+
+          cachePromises.push(
+            getCacheData(phoneNumber, "kyc").then((kycData) => {
+              if (kycData) accountDataMap.get(phoneNumber).kycData = kycData;
+            })
+          );
+
+          cachePromises.push(
+            getCacheData(phoneNumber, "mainnet").then((mainnetData) => {
+              if (mainnetData) {
+                accountDataMap.get(phoneNumber).mainnetData = mainnetData;
+              } else if (account.credentials?.access_token) {
+                // If no mainnet data, add to list for batch update later
+                accountsNeedingBalanceUpdate.push(account);
               }
-            } catch (err) {
-              console.error(
-                `Failed to refresh mainnet balance for ${account.phone_number}:`,
-                err
-              );
-            }
-          }
+            })
+          );
         }
 
-        const accountsWithData = await Promise.all(
-          savedAccounts.map(async (account) => {
-            const userData = await getCacheData(account.phone_number, "user");
-            const piData = await getCacheData(account.phone_number, "pi");
-            let username = account.username;
-            let balance = 0;
-            let mining_status = "Inactive";
+        // Wait for all cache data to be fetched
+        await Promise.all(cachePromises);
 
-            // Start with display_name from the account record first
-            let display_name = account.display_name || "";
-            let phone_verification = "";
-            let facebook_verified = false;
-            let password_status = false;
-            let trusted_email = "";
-            let email_verified = false;
-            let kyc_eligible = false;
-            let referred_by = "";
-            let completed_sessions = 0;
-            let kyc_status = "";
-            let kyc_detailed_status = "";
+        // Now handle mainnet balance updates (but limit to 5 at a time to avoid rate limiting)
+        const BATCH_SIZE = 5;
+        for (
+          let i = 0;
+          i < accountsNeedingBalanceUpdate.length;
+          i += BATCH_SIZE
+        ) {
+          const batch = accountsNeedingBalanceUpdate.slice(i, i + BATCH_SIZE);
+          await Promise.all(
+            batch.map(async (account) => {
+              if (!account.credentials?.access_token) return;
 
-            // Initialize mainnet balance values
-            let pending_balance = 0;
-            let balance_ready = 0;
-            let total_pushed_balance = 0;
-
-            if (userData && typeof userData === "object") {
-              const userDataObj = userData as {
-                profile?: {
-                  username?: string;
-                  name?: string;
-                  display_name?: string;
-                  phone_verification?: string;
-                  verified_with_facebook?: boolean;
-                  password_status?: { exists: boolean };
-                  trusted_email?: string;
-                  email_verified?: boolean;
-                  kyc_eligible?: boolean;
-                };
-                referring_user?: {
-                  display_name?: string;
-                };
-              };
-
-              username = userDataObj.profile?.username || "";
-
-              // If we don't have a display_name, try to get it from the profile
-              if (!display_name) {
-                // Try both name and display_name fields
-                display_name =
-                  userDataObj.profile?.name ||
-                  userDataObj.profile?.display_name ||
-                  "";
-              }
-              phone_verification =
-                userDataObj.profile?.phone_verification || "";
-              facebook_verified =
-                userDataObj.profile?.verified_with_facebook || false;
-              password_status =
-                userDataObj.profile?.password_status?.exists || false;
-              trusted_email = userDataObj.profile?.trusted_email || "";
-              email_verified = userDataObj.profile?.email_verified || false;
-              kyc_eligible = userDataObj.profile?.kyc_eligible || false;
-              referred_by = userDataObj.referring_user?.display_name || "";
-            }
-
-            if (piData && typeof piData === "object") {
-              const piDataObj = piData as {
-                balance?: number;
-                mining_status?: { is_mining: boolean };
-                completed_sessions_count?: number;
-              };
-              balance = piDataObj.balance || 0;
-              mining_status = piDataObj.mining_status?.is_mining
-                ? "Active"
-                : "Inactive";
-              completed_sessions = piDataObj.completed_sessions_count || 0;
-            }
-
-            const kycData = await getCacheData(account.phone_number, "kyc");
-            if (kycData && typeof kycData === "object") {
-              const kycDataObj = kycData as {
-                status?: string;
-                detailed_status?: string;
-              };
-              kyc_status = kycDataObj.status || "";
-              kyc_detailed_status = kycDataObj.detailed_status || "";
-            }
-
-            // Fetch mainnet balance data
-            const mainnetData = await getCacheData(
-              account.phone_number,
-              "mainnet"
-            );
-            if (mainnetData && typeof mainnetData === "object") {
-              const mainnetDataObj = mainnetData as {
-                pending_balance?: number;
-                balance_ready?: number;
-                total_pushed_balance?: number;
-              };
-              pending_balance = mainnetDataObj.pending_balance || 0;
-              balance_ready = mainnetDataObj.balance_ready || 0;
-              total_pushed_balance = mainnetDataObj.total_pushed_balance || 0;
-            } else if (account.credentials?.access_token) {
-              // If no cached data exists, fetch from API
               try {
                 const mainnetBalance = await fetchMainnetBalance(
                   account.credentials.access_token
                 );
-                if (mainnetBalance) {
-                  pending_balance = mainnetBalance.pending_balance || 0;
-                  balance_ready = mainnetBalance.balance_ready || 0;
-                  total_pushed_balance =
-                    mainnetBalance.total_pushed_balance || 0;
 
-                  // Cache the mainnet balance data
+                if (mainnetBalance) {
+                  // Update the account data map
+                  accountDataMap.get(account.phone_number).mainnetData =
+                    mainnetBalance;
+
+                  // Cache the data
                   await setCacheData(
                     account.phone_number,
                     "mainnet",
@@ -447,78 +378,154 @@ export default function ManageAccounts() {
                   );
                 }
               } catch (err) {
-                console.error("Failed to fetch mainnet balance:", err);
-              }
-            }
-
-            // If no display name but we have credentials, try to refresh user data
-            if (!display_name && account.credentials?.access_token) {
-              try {
-                const userResponse = await fetch("/api/me", {
-                  headers: {
-                    Authorization: `Bearer ${account.credentials.access_token}`,
-                    "Content-Type": "application/json",
-                  },
-                });
-
-                if (userResponse.ok) {
-                  const freshUserData = await userResponse.json();
-                  // Cache the refreshed data
-                  await setCacheData(
-                    account.phone_number,
-                    "user",
-                    freshUserData
-                  );
-
-                  // Try to get display name from the fresh data
-                  if (freshUserData.profile?.name) {
-                    display_name = freshUserData.profile.name;
-
-                    // Also update the stored account
-                    const updatedAccount = {
-                      ...account,
-                      display_name: display_name,
-                    };
-                    await saveAccount(updatedAccount);
-                  }
-                }
-              } catch (err) {
                 console.error(
-                  `Failed to refresh user data for ${account.phone_number}:`,
+                  `Failed to refresh mainnet balance for ${account.phone_number}:`,
                   err
                 );
               }
-            }
-            const finalAccount = {
-              ...account,
-              username: username || account.phone_number,
-              display_name,
-              balance,
-              mining_status,
-              completed_sessions,
-              phone_verification,
-              facebook_verified,
-              password_status,
-              trusted_email,
-              email_verified,
-              kyc_eligible,
-              kyc_status,
-              kyc_detailed_status,
-              referred_by,
-              // Add mainnet balance data
-              pending_balance,
-              balance_ready,
-              total_pushed_balance,
+            })
+          );
+
+          // Add a small delay between batches to avoid overwhelming the API
+          if (i + BATCH_SIZE < accountsNeedingBalanceUpdate.length) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        }
+
+        // Process all account data to create final objects
+        const accountsWithData = savedAccounts.map((account) => {
+          const phoneNumber = account.phone_number;
+          const accountData = accountDataMap.get(phoneNumber);
+
+          // Default values
+          let username = account.username;
+          let balance = 0;
+          let mining_status = "Inactive";
+          let display_name = account.display_name || "";
+          let phone_verification = "";
+          let facebook_verified = false;
+          let password_status = false;
+          let trusted_email = "";
+          let email_verified = false;
+          let kyc_eligible = false;
+          let referred_by = "";
+          let completed_sessions = 0;
+          let kyc_status = "";
+          let kyc_detailed_status = "";
+          let pending_balance = 0;
+          let balance_ready = 0;
+          let total_pushed_balance = 0;
+
+          // Process user data
+          const userData = accountData.userData;
+          if (userData && typeof userData === "object") {
+            const userDataObj = userData as {
+              profile?: {
+                username?: string;
+                name?: string;
+                display_name?: string;
+                phone_verification?: string;
+                verified_with_facebook?: boolean;
+                password_status?: { exists: boolean };
+                trusted_email?: string;
+                email_verified?: boolean;
+                kyc_eligible?: boolean;
+              };
+              referring_user?: {
+                display_name?: string;
+              };
             };
-            return finalAccount;
-          })
-        );
+
+            username = userDataObj.profile?.username || "";
+
+            // If we don't have a display_name, try to get it from the profile
+            if (!display_name) {
+              // Try both name and display_name fields
+              display_name =
+                userDataObj.profile?.name ||
+                userDataObj.profile?.display_name ||
+                "";
+            }
+            phone_verification = userDataObj.profile?.phone_verification || "";
+            facebook_verified =
+              userDataObj.profile?.verified_with_facebook || false;
+            password_status =
+              userDataObj.profile?.password_status?.exists || false;
+            trusted_email = userDataObj.profile?.trusted_email || "";
+            email_verified = userDataObj.profile?.email_verified || false;
+            kyc_eligible = userDataObj.profile?.kyc_eligible || false;
+            referred_by = userDataObj.referring_user?.display_name || "";
+          }
+
+          // Process pi data
+          const piData = accountData.piData;
+          if (piData && typeof piData === "object") {
+            const piDataObj = piData as {
+              balance?: number;
+              mining_status?: { is_mining: boolean };
+              completed_sessions_count?: number;
+            };
+            balance = piDataObj.balance || 0;
+            mining_status = piDataObj.mining_status?.is_mining
+              ? "Active"
+              : "Inactive";
+            completed_sessions = piDataObj.completed_sessions_count || 0;
+          }
+
+          // Process kyc data
+          const kycData = accountData.kycData;
+          if (kycData && typeof kycData === "object") {
+            const kycDataObj = kycData as {
+              status?: string;
+              detailed_status?: string;
+            };
+            kyc_status = kycDataObj.status || "";
+            kyc_detailed_status = kycDataObj.detailed_status || "";
+          }
+
+          // Process mainnet data
+          const mainnetData = accountData.mainnetData;
+          if (mainnetData && typeof mainnetData === "object") {
+            const mainnetDataObj = mainnetData as {
+              pending_balance?: number;
+              balance_ready?: number;
+              total_pushed_balance?: number;
+            };
+            pending_balance = mainnetDataObj.pending_balance || 0;
+            balance_ready = mainnetDataObj.balance_ready || 0;
+            total_pushed_balance = mainnetDataObj.total_pushed_balance || 0;
+          }
+
+          // Return the processed account
+          return {
+            ...account,
+            username: username || account.phone_number,
+            display_name,
+            balance,
+            mining_status,
+            completed_sessions,
+            phone_verification,
+            facebook_verified,
+            password_status,
+            trusted_email,
+            email_verified,
+            kyc_eligible,
+            kyc_status,
+            kyc_detailed_status,
+            referred_by,
+            pending_balance,
+            balance_ready,
+            total_pushed_balance,
+          };
+        });
+
         setAccounts(accountsWithData || []);
       } catch (err) {
         console.error("Failed to load accounts:", err);
         setAccounts([]);
       }
     };
+
     loadAccounts();
   }, []);
 

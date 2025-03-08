@@ -122,7 +122,7 @@ export default function AccountPage() {
 
         // Fetch Pi data
         try {
-          const piResponse = await fetch("https://socialchain.app/api/pi", {
+          const piResponse = await fetch("/api/pi", {
             method: "GET",
             headers: headers,
             redirect: "follow" as RequestRedirect,
@@ -144,7 +144,7 @@ export default function AccountPage() {
 
         // Fetch User data
         try {
-          const userResponse = await fetch("https://socialchain.app/api/me", {
+          const userResponse = await fetch("/api/me", {
             method: "GET",
             headers: headers,
             redirect: "follow" as RequestRedirect,
@@ -165,14 +165,11 @@ export default function AccountPage() {
 
         // Fetch KYC data
         try {
-          const kycResponse = await fetch(
-            "https://socialchain.app/api/kyc/pi_kyc_status",
-            {
-              method: "GET",
-              headers: headers,
-              redirect: "follow" as RequestRedirect,
-            }
-          );
+          const kycResponse = await fetch("/api/kyc", {
+            method: "GET",
+            headers: headers,
+            redirect: "follow" as RequestRedirect,
+          });
           if (!kycResponse.ok) {
             throw new Error(`Failed to fetch KYC data: ${kycResponse.status}`);
           }
@@ -231,7 +228,7 @@ export default function AccountPage() {
       headers.append("Authorization", `Bearer ${accessToken}`);
       headers.append("Content-Type", "application/json");
 
-      const piResponse = await fetch("https://socialchain.app/api/pi", {
+      const piResponse = await fetch("/api/pi", {
         method: "GET",
         headers: headers,
         redirect: "follow" as RequestRedirect,
@@ -261,7 +258,7 @@ export default function AccountPage() {
       headers.append("Authorization", `Bearer ${accessToken}`);
       headers.append("Content-Type", "application/json");
 
-      const userResponse = await fetch("https://socialchain.app/api/me", {
+      const userResponse = await fetch("/api/me", {
         method: "GET",
         headers: headers,
         redirect: "follow" as RequestRedirect,
@@ -290,14 +287,11 @@ export default function AccountPage() {
       headers.append("Authorization", `Bearer ${accessToken}`);
       headers.append("Content-Type", "application/json");
 
-      const kycResponse = await fetch(
-        "https://socialchain.app/api/kyc/pi_kyc_status",
-        {
-          method: "GET",
-          headers: headers,
-          redirect: "follow" as RequestRedirect,
-        }
-      );
+      const kycResponse = await fetch("/api/kyc", {
+        method: "GET",
+        headers: headers,
+        redirect: "follow" as RequestRedirect,
+      });
       if (!kycResponse.ok) {
         throw new Error(`Failed to fetch KYC data: ${kycResponse.status}`);
       }

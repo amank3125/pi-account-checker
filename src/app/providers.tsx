@@ -18,12 +18,15 @@ export default function Providers({ children }: ProviderProps) {
   return (
     <SessionProvider>
       <Toaster
-        position="top-right"
+        position="top-center"
         toastOptions={{
           duration: 3000,
           style: {
             background: "#333",
             color: "#fff",
+            maxWidth: "500px",
+            width: "90%",
+            textAlign: "center",
           },
           success: {
             style: {
