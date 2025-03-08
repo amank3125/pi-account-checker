@@ -3,6 +3,7 @@
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { clearUserData } from "@/lib/utils";
 
 export default function SignOut() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export default function SignOut() {
   }, [isSigningOut]);
 
   const handleSignOut = () => {
+    clearUserData();
     setIsSigningOut(true);
   };
 

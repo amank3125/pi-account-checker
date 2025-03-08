@@ -1166,14 +1166,15 @@ export default function MinePage() {
         <div className="flex flex-col mb-6">
           <h1 className="text-3xl font-bold text-white mb-4">Pi Mining</h1>
 
-          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Mining Data Sync panel - now takes half the width */}
-            <div>
+          {/* Main container to hold both panels and limit width to match the table */}
+          <div className="w-full xl:max-w-[1163px] grid grid-cols-2 gap-2 mb-4 mx-auto">
+            {/* Mining Data Sync panel - takes exactly half the width */}
+            <div className="w-full">
               <MiningDataSync />
             </div>
 
-            {/* Filter and Sort Controls - icon-based with submenus */}
-            <div className="bg-gray-800 rounded-lg shadow-md border border-gray-700 overflow-hidden">
+            {/* Filter & Sort panel */}
+            <div className="w-full bg-gray-800 rounded-lg shadow-md border border-gray-700 overflow-hidden">
               <div className="bg-gray-700 px-4 py-2 flex justify-between items-center">
                 <h3 className="text-md font-medium text-white">
                   Filter & Sort
@@ -1665,7 +1666,7 @@ export default function MinePage() {
               </p>
             </div>
           ) : (
-            <div className="bg-gray-900 rounded-lg shadow overflow-hidden">
+            <div className="bg-gray-900 rounded-lg shadow overflow-hidden xl:max-w-[1163px] mx-auto">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-300">
                   <thead className="bg-gray-700">

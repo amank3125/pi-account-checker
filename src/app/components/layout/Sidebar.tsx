@@ -426,7 +426,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       )}
 
       <div
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col overflow-y-auto bg-white shadow-lg transition-all duration-300 dark:bg-gray-900 ${
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col overflow-y-auto overflow-x-hidden bg-white shadow-lg transition-all duration-300 dark:bg-gray-900 ${
           isOpen ? "w-full" : isExpanded ? "w-64" : "w-20"
         } ${isOpen ? "" : "border-r border-gray-200 dark:border-gray-800"}`}
       >

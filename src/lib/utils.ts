@@ -181,3 +181,56 @@ export async function batchQueries<T>(
     })
   );
 }
+
+/**
+ * Clears all localStorage data and cache related to the application
+ * Call this on logout to ensure user data is removed
+ */
+export function clearUserData() {
+  try {
+    // Clear all mining data from localStorage
+    localStorage.removeItem("lastMiningDataSync");
+
+    // Clear Supabase session related items
+    localStorage.removeItem("supabaseSessionValidation");
+    localStorage.removeItem("supabaseSessionValid");
+    localStorage.removeItem("supabaseUserData");
+
+    // Clear migration-related items
+    localStorage.removeItem("MIGRATION_IN_PROGRESS");
+    localStorage.removeItem("MIGRATION_COOLDOWN");
+    localStorage.removeItem("lastMigrationTime");
+    localStorage.removeItem("lastSessionValidation");
+    localStorage.removeItem("hasValidSession");
+    localStorage.removeItem("lastSupabaseSync");
+    localStorage.removeItem("lastManualSyncAttempt");
+
+    // Clear account cache data
+    localStorage.removeItem("cachedAccounts");
+    localStorage.removeItem("lastAccountFetchTime");
+
+    // Clear column visibility and sort preferences
+    localStorage.removeItem("columnVisibility");
+    localStorage.removeItem("sortColumn");
+    localStorage.removeItem("sortDirection");
+
+    // Clear sidebar state
+    localStorage.removeItem("sidebarExpanded");
+
+    // Clear all cache_ prefixed items (dynamic cache entries)
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith("cache_")) {
+        localStorage.removeItem(key);
+      }
+    });
+
+    console.log("All user data cleared from localStorage");
+
+    // If using IndexedDB or other storage, clear those here too
+
+    return true;
+  } catch (error) {
+    console.error("Error clearing user data:", error);
+    return false;
+  }
+}
