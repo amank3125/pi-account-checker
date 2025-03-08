@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Sidebar from "../components/layout/Sidebar";
 import { getAllAccounts } from "@/lib/db";
 import { IconPick } from "@tabler/icons-react";
@@ -208,6 +208,242 @@ export default function MinePage() {
 
   // Add notifications state
   const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  // Add filter and sort state
+  const [filters, setFilters] = useState({
+    status: "all", // 'all', 'active', 'inactive'
+    endTime: "all", // 'all', 'today', 'tomorrow'
+    timeRemaining: "all", // 'all', 'less-than-1-hour', 'more-than-1-hour'
+  });
+
+  const [sortConfig, setSortConfig] = useState({
+    key: "none", // 'none', 'status', 'timeRemaining', 'hourlyRate', 'endTime', 'sessions'
+    direction: "asc", // 'asc', 'desc'
+  });
+
+  // Add state for showing/hiding dropdowns
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [showSortMenu, setShowSortMenu] = useState(false);
+
+  // Add animation states
+  const [filterAnimationState, setFilterAnimationState] = useState<
+    "closed" | "opening" | "open" | "closing"
+  >("closed");
+  const [sortAnimationState, setSortAnimationState] = useState<
+    "closed" | "opening" | "open" | "closing"
+  >("closed");
+
+  // References for clicking outside detection
+  const filterMenuRef = useRef<HTMLDivElement>(null);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+
+  // Toggle filter menu with animation
+  const toggleFilterMenu = () => {
+    if (filterAnimationState === "closed") {
+      setShowFilterMenu(true);
+      setFilterAnimationState("opening");
+      setTimeout(() => {
+        setFilterAnimationState("open");
+      }, 10); // Small delay to ensure DOM update
+    } else if (filterAnimationState === "open") {
+      setFilterAnimationState("closing");
+      setTimeout(() => {
+        setShowFilterMenu(false);
+        setFilterAnimationState("closed");
+      }, 300); // Match this to the CSS transition duration
+    }
+  };
+
+  // Toggle sort menu with animation
+  const toggleSortMenu = () => {
+    if (sortAnimationState === "closed") {
+      setShowSortMenu(true);
+      setSortAnimationState("opening");
+      setTimeout(() => {
+        setSortAnimationState("open");
+      }, 10); // Small delay to ensure DOM update
+    } else if (sortAnimationState === "open") {
+      setSortAnimationState("closing");
+      setTimeout(() => {
+        setShowSortMenu(false);
+        setSortAnimationState("closed");
+      }, 300); // Match this to the CSS transition duration
+    }
+  };
+
+  // Update click outside handler for animated menus
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        filterMenuRef.current &&
+        !filterMenuRef.current.contains(event.target as Node) &&
+        filterAnimationState === "open"
+      ) {
+        toggleFilterMenu();
+      }
+      if (
+        sortMenuRef.current &&
+        !sortMenuRef.current.contains(event.target as Node) &&
+        sortAnimationState === "open"
+      ) {
+        toggleSortMenu();
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [filterAnimationState, sortAnimationState]);
+
+  // When a dropdown opens, close the other one
+  useEffect(() => {
+    if (filterAnimationState === "opening" && sortAnimationState === "open") {
+      toggleSortMenu();
+    }
+  }, [filterAnimationState]);
+
+  useEffect(() => {
+    if (sortAnimationState === "opening" && filterAnimationState === "open") {
+      toggleFilterMenu();
+    }
+  }, [sortAnimationState]);
+
+  // Function to toggle sort direction
+  const toggleSort = (key: string) => {
+    setSortConfig((current) => {
+      if (current.key === key) {
+        return {
+          key,
+          direction: current.direction === "asc" ? "desc" : "asc",
+        };
+      }
+      return { key, direction: "asc" };
+    });
+  };
+
+  // Function to update filter values
+  const updateFilter = (filterType: string, value: string) => {
+    setFilters((current) => ({
+      ...current,
+      [filterType]: value,
+    }));
+  };
+
+  // Function to apply filters to accounts
+  const getFilteredAccounts = () => {
+    if (!accounts) return [];
+
+    return accounts.filter((account) => {
+      const status = miningStatus[account.phone_number];
+      if (!status) return true;
+
+      // Filter by status
+      if (filters.status !== "all") {
+        const isActive = filters.status === "active";
+        if (status.isActive !== isActive) return false;
+      }
+
+      // Filter by end time
+      if (filters.endTime !== "all" && status.expiresAt) {
+        const expiresAt = new Date(status.expiresAt);
+        const today = new Date();
+        const tomorrow = new Date();
+        tomorrow.setDate(today.getDate() + 1);
+
+        // Reset time parts for date comparison
+        today.setHours(0, 0, 0, 0);
+        tomorrow.setHours(0, 0, 0, 0);
+        const expiresDate = new Date(expiresAt);
+        expiresDate.setHours(0, 0, 0, 0);
+
+        if (filters.endTime === "today") {
+          if (expiresDate.getTime() !== today.getTime()) return false;
+        } else if (filters.endTime === "tomorrow") {
+          if (expiresDate.getTime() !== tomorrow.getTime()) return false;
+        }
+      }
+
+      // Filter by time remaining
+      if (filters.timeRemaining !== "all" && status.expiresAt) {
+        const expiresAt = new Date(status.expiresAt);
+        const now = new Date();
+        const hoursRemaining =
+          (expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+        if (filters.timeRemaining === "less-than-1-hour") {
+          if (hoursRemaining >= 1) return false;
+        } else if (filters.timeRemaining === "more-than-1-hour") {
+          if (hoursRemaining < 1) return false;
+        }
+      }
+
+      return true;
+    });
+  };
+
+  // Function to sort accounts
+  const getSortedAccounts = (filteredAccounts: Account[]) => {
+    if (sortConfig.key === "none") return filteredAccounts;
+
+    return [...filteredAccounts].sort((a, b) => {
+      const statusA = miningStatus[a.phone_number];
+      const statusB = miningStatus[b.phone_number];
+
+      if (!statusA && !statusB) return 0;
+      if (!statusA) return 1;
+      if (!statusB) return -1;
+
+      const multiplier = sortConfig.direction === "asc" ? 1 : -1;
+
+      switch (sortConfig.key) {
+        case "status":
+          return statusA.isActive === statusB.isActive
+            ? 0
+            : (statusA.isActive ? -1 : 1) * multiplier;
+
+        case "timeRemaining":
+          if (!statusA.expiresAt && !statusB.expiresAt) return 0;
+          if (!statusA.expiresAt) return 1;
+          if (!statusB.expiresAt) return -1;
+
+          const timeA =
+            new Date(statusA.expiresAt).getTime() - new Date().getTime();
+          const timeB =
+            new Date(statusB.expiresAt).getTime() - new Date().getTime();
+          return (timeA - timeB) * multiplier;
+
+        case "hourlyRate":
+          if (!statusA.hourlyRatio && !statusB.hourlyRatio) return 0;
+          if (!statusA.hourlyRatio) return 1;
+          if (!statusB.hourlyRatio) return -1;
+
+          return (statusA.hourlyRatio - statusB.hourlyRatio) * multiplier;
+
+        case "endTime":
+          if (!statusA.expiresAt && !statusB.expiresAt) return 0;
+          if (!statusA.expiresAt) return 1;
+          if (!statusB.expiresAt) return -1;
+
+          const endA = new Date(statusA.expiresAt).getTime();
+          const endB = new Date(statusB.expiresAt).getTime();
+          return (endA - endB) * multiplier;
+
+        case "sessions":
+          if (!statusA.completedSessions && !statusB.completedSessions)
+            return 0;
+          if (!statusA.completedSessions) return 1;
+          if (!statusB.completedSessions) return -1;
+
+          return (
+            (statusA.completedSessions - statusB.completedSessions) * multiplier
+          );
+
+        default:
+          return 0;
+      }
+    });
+  };
 
   // Function to show a notification - modified to prevent duplicates and clear other errors
   const showNotification = (
@@ -937,9 +1173,464 @@ export default function MinePage() {
         <div className="flex flex-col mb-6">
           <h1 className="text-3xl font-bold text-white mb-4">Pi Mining</h1>
 
-          <div className="w-full">
-            <MiningDataSync />
+          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Mining Data Sync panel - now takes half the width */}
+            <div>
+              <MiningDataSync />
+            </div>
+
+            {/* Filter and Sort Controls - icon-based with submenus */}
+            <div className="bg-gray-800 rounded-lg shadow-md border border-gray-700 overflow-hidden">
+              <div className="bg-gray-700 px-4 py-2 flex justify-between items-center">
+                <h3 className="text-md font-medium text-white">
+                  Filter & Sort
+                </h3>
+                <div className="flex items-center space-x-3">
+                  {/* Filter icon */}
+                  <div className="relative" ref={filterMenuRef}>
+                    <button
+                      onClick={toggleFilterMenu}
+                      className={`p-1.5 rounded-md ${
+                        filterAnimationState !== "closed"
+                          ? "bg-blue-600"
+                          : "bg-gray-600 hover:bg-gray-500"
+                      }`}
+                      title="Filter options"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Sort icon */}
+                  <div className="relative" ref={sortMenuRef}>
+                    <button
+                      onClick={toggleSortMenu}
+                      className={`p-1.5 rounded-md ${
+                        sortAnimationState !== "closed"
+                          ? "bg-blue-600"
+                          : "bg-gray-600 hover:bg-gray-500"
+                      }`}
+                      title="Sort options"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Reset button for both */}
+                  <button
+                    className="p-1.5 bg-gray-600 hover:bg-gray-500 rounded-md"
+                    onClick={() => {
+                      setFilters({
+                        status: "all",
+                        endTime: "all",
+                        timeRemaining: "all",
+                      });
+                      setSortConfig({ key: "none", direction: "asc" });
+                      toggleFilterMenu();
+                      toggleSortMenu();
+                    }}
+                    title="Reset all filters and sorting"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-5 w-5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* Active filters display */}
+              <div className="px-4 py-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-gray-400">Active filters:</span>
+
+                {filters.status !== "all" && (
+                  <span className="bg-gray-700 px-2 py-1 rounded-full flex items-center">
+                    Status:{" "}
+                    {filters.status === "active" ? "Active" : "Inactive"}
+                    <button
+                      className="ml-1 text-gray-400 hover:text-white"
+                      onClick={() => updateFilter("status", "all")}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+
+                {filters.endTime !== "all" && (
+                  <span className="bg-gray-700 px-2 py-1 rounded-full flex items-center">
+                    End: {filters.endTime === "today" ? "Today" : "Tomorrow"}
+                    <button
+                      className="ml-1 text-gray-400 hover:text-white"
+                      onClick={() => updateFilter("endTime", "all")}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+
+                {filters.timeRemaining !== "all" && (
+                  <span className="bg-gray-700 px-2 py-1 rounded-full flex items-center">
+                    Time:{" "}
+                    {filters.timeRemaining === "less-than-1-hour"
+                      ? "< 1 Hour"
+                      : "> 1 Hour"}
+                    <button
+                      className="ml-1 text-gray-400 hover:text-white"
+                      onClick={() => updateFilter("timeRemaining", "all")}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+
+                {sortConfig.key !== "none" && (
+                  <span className="bg-gray-700 px-2 py-1 rounded-full flex items-center">
+                    Sort:{" "}
+                    {sortConfig.key === "status"
+                      ? "Status"
+                      : sortConfig.key === "timeRemaining"
+                      ? "Time Remaining"
+                      : sortConfig.key === "hourlyRate"
+                      ? "Hourly Rate"
+                      : sortConfig.key === "endTime"
+                      ? "End Time"
+                      : "Sessions"}{" "}
+                    {sortConfig.direction === "asc" ? "↑" : "↓"}
+                    <button
+                      className="ml-1 text-gray-400 hover:text-white"
+                      onClick={() =>
+                        setSortConfig({ key: "none", direction: "asc" })
+                      }
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+
+                {filters.status !== "all" ||
+                filters.endTime !== "all" ||
+                filters.timeRemaining !== "all" ||
+                sortConfig.key !== "none" ? (
+                  <button
+                    className="text-blue-400 hover:text-blue-300 ml-auto"
+                    onClick={() => {
+                      setFilters({
+                        status: "all",
+                        endTime: "all",
+                        timeRemaining: "all",
+                      });
+                      setSortConfig({ key: "none", direction: "asc" });
+                    }}
+                  >
+                    Clear All
+                  </button>
+                ) : (
+                  <span className="text-gray-500">None</span>
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* Filter Dropdown Menu with proper event isolation */}
+          {showFilterMenu && (
+            <>
+              {/* Invisible overlay that only handles outside clicks */}
+              <div
+                className="fixed top-0 left-0 right-0 bottom-0 z-40"
+                onClick={toggleFilterMenu}
+              />
+              {/* Completely isolated menu with no event bubbling */}
+              <div
+                className={`fixed right-4 top-30 w-80 bg-gray-800 rounded-md shadow-lg border border-gray-700 z-50 
+                  transition-all duration-300 ease-out ${
+                    filterAnimationState === "opening"
+                      ? "opacity-0 transform -translate-y-2 scale-95"
+                      : filterAnimationState === "closing"
+                      ? "opacity-0 transform -translate-y-2 scale-95"
+                      : "opacity-100 transform translate-y-0 scale-100"
+                  }`}
+                style={{ maxWidth: "95vw" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+              >
+                <div className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className="flex justify-between items-center mb-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h4 className="text-sm font-medium text-gray-300">
+                      Filters
+                    </h4>
+                    <button
+                      className="text-gray-400 hover:text-white"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleFilterMenu();
+                      }}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div
+                    className="space-y-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Status Filter */}
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        Status
+                      </label>
+                      <select
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-white"
+                        value={filters.status}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          updateFilter("status", e.target.value);
+                        }}
+                      >
+                        <option value="all">All</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </div>
+
+                    {/* End Time Filter */}
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        End Time
+                      </label>
+                      <select
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-white"
+                        value={filters.endTime}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          updateFilter("endTime", e.target.value);
+                        }}
+                      >
+                        <option value="all">All</option>
+                        <option value="today">Today</option>
+                        <option value="tomorrow">Tomorrow</option>
+                      </select>
+                    </div>
+
+                    {/* Time Remaining Filter */}
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        Time Remaining
+                      </label>
+                      <select
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-white"
+                        value={filters.timeRemaining}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          updateFilter("timeRemaining", e.target.value);
+                        }}
+                      >
+                        <option value="all">All</option>
+                        <option value="less-than-1-hour">{"< 1 Hour"}</option>
+                        <option value="more-than-1-hour">{"> 1 Hour"}</option>
+                      </select>
+                    </div>
+
+                    {/* Apply/Reset Buttons */}
+                    <div
+                      className="flex justify-end space-x-2 mt-3"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        className="px-3 py-1 text-xs bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setFilters({
+                            status: "all",
+                            endTime: "all",
+                            timeRemaining: "all",
+                          });
+                        }}
+                      >
+                        Reset Filters
+                      </button>
+                      <button
+                        className="px-3 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          toggleFilterMenu();
+                        }}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Sort Dropdown Menu with proper event isolation */}
+          {showSortMenu && (
+            <>
+              {/* Invisible overlay that only handles outside clicks */}
+              <div
+                className="fixed top-0 left-0 right-0 bottom-0 z-40"
+                onClick={toggleSortMenu}
+              />
+              {/* Completely isolated menu with no event bubbling */}
+              <div
+                className={`fixed right-4 top-30 w-64 bg-gray-800 rounded-md shadow-lg border border-gray-700 z-50
+                  transition-all duration-300 ease-out ${
+                    sortAnimationState === "opening"
+                      ? "opacity-0 transform -translate-y-2 scale-95"
+                      : sortAnimationState === "closing"
+                      ? "opacity-0 transform -translate-y-2 scale-95"
+                      : "opacity-100 transform translate-y-0 scale-100"
+                  }`}
+                style={{ maxWidth: "95vw" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className="flex justify-between items-center mb-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h4 className="text-sm font-medium text-gray-300">
+                      Sort By
+                    </h4>
+                    <button
+                      className="text-gray-400 hover:text-white"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleSortMenu();
+                      }}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <div
+                    className="space-y-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {[
+                      { key: "status", label: "Status" },
+                      { key: "timeRemaining", label: "Time Remaining" },
+                      { key: "hourlyRate", label: "Hourly Rate" },
+                      { key: "endTime", label: "End Time" },
+                      { key: "sessions", label: "Sessions" },
+                    ].map((sort) => (
+                      <button
+                        key={sort.key}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleSort(sort.key);
+                        }}
+                        className={`flex items-center justify-between w-full px-3 py-1.5 text-sm rounded-md ${
+                          sortConfig.key === sort.key
+                            ? "bg-blue-600 text-white"
+                            : "text-gray-300 hover:bg-gray-700"
+                        }`}
+                      >
+                        <span>{sort.label}</span>
+                        {sortConfig.key === sort.key && (
+                          <span className="text-xs">
+                            {sortConfig.direction === "asc" ? "↑" : "↓"}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+
+                    {/* Reset Sort Button */}
+                    <div
+                      className="pt-2 border-t border-gray-700 mt-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        className="w-full px-3 py-1.5 text-xs bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSortConfig({ key: "none", direction: "asc" });
+                          toggleSortMenu();
+                        }}
+                      >
+                        Reset Sort
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Custom notification area - showing only the most recent notification of each type */}
           {notifications.length > 0 && (
@@ -1058,7 +1749,7 @@ export default function MinePage() {
                     </tr>
                   </thead>
                   <tbody className="bg-gray-800 divide-y divide-gray-700">
-                    {accounts.map((account) => (
+                    {getSortedAccounts(getFilteredAccounts()).map((account) => (
                       <tr key={account.phone_number}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-200">
