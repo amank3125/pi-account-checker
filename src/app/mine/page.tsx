@@ -225,89 +225,82 @@ export default function MinePage() {
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
 
-  // Add animation states
-  const [filterAnimationState, setFilterAnimationState] = useState<
-    "closed" | "opening" | "open" | "closing"
-  >("closed");
-  const [sortAnimationState, setSortAnimationState] = useState<
-    "closed" | "opening" | "open" | "closing"
-  >("closed");
-
   // References for clicking outside detection
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const sortMenuRef = useRef<HTMLDivElement>(null);
 
-  // Toggle filter menu with animation
-  const toggleFilterMenu = () => {
-    if (filterAnimationState === "closed") {
-      setShowFilterMenu(true);
-      setFilterAnimationState("opening");
-      setTimeout(() => {
-        setFilterAnimationState("open");
-      }, 10); // Small delay to ensure DOM update
-    } else if (filterAnimationState === "open") {
-      setFilterAnimationState("closing");
-      setTimeout(() => {
-        setShowFilterMenu(false);
-        setFilterAnimationState("closed");
-      }, 300); // Match this to the CSS transition duration
-    }
+  // Menu handling with focus lock
+  const openFilterMenu = () => {
+    setShowSortMenu(false);
+    setShowFilterMenu(true);
+    // Prevent background scrolling when menu is open
+    document.body.style.overflow = "hidden";
   };
 
-  // Toggle sort menu with animation
-  const toggleSortMenu = () => {
-    if (sortAnimationState === "closed") {
-      setShowSortMenu(true);
-      setSortAnimationState("opening");
-      setTimeout(() => {
-        setSortAnimationState("open");
-      }, 10); // Small delay to ensure DOM update
-    } else if (sortAnimationState === "open") {
-      setSortAnimationState("closing");
-      setTimeout(() => {
-        setShowSortMenu(false);
-        setSortAnimationState("closed");
-      }, 300); // Match this to the CSS transition duration
-    }
+  const closeFilterMenu = () => {
+    setShowFilterMenu(false);
+    // Restore scrolling
+    document.body.style.overflow = "";
   };
 
-  // Update click outside handler for animated menus
+  const openSortMenu = () => {
+    setShowFilterMenu(false);
+    setShowSortMenu(true);
+    // Prevent background scrolling when menu is open
+    document.body.style.overflow = "hidden";
+  };
+
+  const closeSortMenu = () => {
+    setShowSortMenu(false);
+    // Restore scrolling
+    document.body.style.overflow = "";
+  };
+
+  // Handler for application of filter/sort
+  const applyFilter = () => {
+    // Any logic to apply filter goes here
+    // Already done by updateFilter, so just close menu
+    closeFilterMenu();
+  };
+
+  const resetSort = () => {
+    setSortConfig({ key: "none", direction: "asc" });
+    closeSortMenu();
+  };
+
+  // Re-enabling click outside handler with improved event handling
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
+      // Skip if both menus are closed
+      if (!showFilterMenu && !showSortMenu) return;
+
+      // Check for filter menu outside click - use the modal background
       if (
-        filterMenuRef.current &&
-        !filterMenuRef.current.contains(event.target as Node) &&
-        filterAnimationState === "open"
+        showFilterMenu &&
+        event.target instanceof Element &&
+        event.target.classList.contains("modal-backdrop")
       ) {
-        toggleFilterMenu();
+        closeFilterMenu();
       }
+
+      // Check for sort menu outside click - use the modal background
       if (
-        sortMenuRef.current &&
-        !sortMenuRef.current.contains(event.target as Node) &&
-        sortAnimationState === "open"
+        showSortMenu &&
+        event.target instanceof Element &&
+        event.target.classList.contains("modal-backdrop")
       ) {
-        toggleSortMenu();
+        closeSortMenu();
       }
     }
 
+    // Add the event listener to the document
     document.addEventListener("mousedown", handleClickOutside);
+
+    // Clean up
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [filterAnimationState, sortAnimationState]);
-
-  // When a dropdown opens, close the other one
-  useEffect(() => {
-    if (filterAnimationState === "opening" && sortAnimationState === "open") {
-      toggleSortMenu();
-    }
-  }, [filterAnimationState]);
-
-  useEffect(() => {
-    if (sortAnimationState === "opening" && filterAnimationState === "open") {
-      toggleFilterMenu();
-    }
-  }, [sortAnimationState]);
+  }, [showFilterMenu, showSortMenu]);
 
   // Function to toggle sort direction
   const toggleSort = (key: string) => {
@@ -1186,12 +1179,12 @@ export default function MinePage() {
                   Filter & Sort
                 </h3>
                 <div className="flex items-center space-x-3">
-                  {/* Filter icon */}
+                  {/* Filter icon and menu */}
                   <div className="relative" ref={filterMenuRef}>
                     <button
-                      onClick={toggleFilterMenu}
+                      onClick={openFilterMenu}
                       className={`p-1.5 rounded-md ${
-                        filterAnimationState !== "closed"
+                        showFilterMenu
                           ? "bg-blue-600"
                           : "bg-gray-600 hover:bg-gray-500"
                       }`}
@@ -1214,12 +1207,12 @@ export default function MinePage() {
                     </button>
                   </div>
 
-                  {/* Sort icon */}
+                  {/* Sort icon and menu */}
                   <div className="relative" ref={sortMenuRef}>
                     <button
-                      onClick={toggleSortMenu}
+                      onClick={openSortMenu}
                       className={`p-1.5 rounded-md ${
-                        sortAnimationState !== "closed"
+                        showSortMenu
                           ? "bg-blue-600"
                           : "bg-gray-600 hover:bg-gray-500"
                       }`}
@@ -1252,8 +1245,6 @@ export default function MinePage() {
                         timeRemaining: "all",
                       });
                       setSortConfig({ key: "none", direction: "asc" });
-                      toggleFilterMenu();
-                      toggleSortMenu();
                     }}
                     title="Reset all filters and sorting"
                   >
@@ -1367,28 +1358,18 @@ export default function MinePage() {
             </div>
           </div>
 
-          {/* Filter Dropdown Menu with proper event isolation */}
+          {/* Filter Dropdown Menu - completely revised implementation */}
           {showFilterMenu && (
-            <>
-              {/* Invisible overlay that only handles outside clicks */}
+            <div
+              className="fixed inset-0  bg-opacity-50 z-40 flex items-start justify-end p-4 modal-backdrop"
+              onClick={closeFilterMenu}
+            >
+              {/* Filter Modal - fully isolated from any outside events */}
               <div
-                className="fixed top-0 left-0 right-0 bottom-0 z-40"
-                onClick={toggleFilterMenu}
-              />
-              {/* Completely isolated menu with no event bubbling */}
-              <div
-                className={`fixed right-4 top-30 w-80 bg-gray-800 rounded-md shadow-lg border border-gray-700 z-50 
-                  transition-all duration-300 ease-out ${
-                    filterAnimationState === "opening"
-                      ? "opacity-0 transform -translate-y-2 scale-95"
-                      : filterAnimationState === "closing"
-                      ? "opacity-0 transform -translate-y-2 scale-95"
-                      : "opacity-100 transform translate-y-0 scale-100"
-                  }`}
+                ref={filterMenuRef}
+                className="w-80 bg-gray-800 rounded-md shadow-lg border border-gray-700 z-50 animate-dropdown mt-25 mr-0"
                 style={{ maxWidth: "95vw" }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                }}
+                onClick={(e) => e.stopPropagation()}
               >
                 <div className="p-3" onClick={(e) => e.stopPropagation()}>
                   <div
@@ -1400,11 +1381,7 @@ export default function MinePage() {
                     </h4>
                     <button
                       className="text-gray-400 hover:text-white"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleFilterMenu();
-                      }}
+                      onClick={closeFilterMenu}
                     >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -1423,23 +1400,16 @@ export default function MinePage() {
                     </button>
                   </div>
 
-                  <div
-                    className="space-y-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <div className="space-y-3">
                     {/* Status Filter */}
-                    <div onClick={(e) => e.stopPropagation()}>
+                    <div>
                       <label className="block text-xs text-gray-400 mb-1">
                         Status
                       </label>
                       <select
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-white"
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         value={filters.status}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          updateFilter("status", e.target.value);
-                        }}
+                        onChange={(e) => updateFilter("status", e.target.value)}
                       >
                         <option value="all">All</option>
                         <option value="active">Active</option>
@@ -1448,18 +1418,16 @@ export default function MinePage() {
                     </div>
 
                     {/* End Time Filter */}
-                    <div onClick={(e) => e.stopPropagation()}>
+                    <div>
                       <label className="block text-xs text-gray-400 mb-1">
                         End Time
                       </label>
                       <select
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-white"
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         value={filters.endTime}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          updateFilter("endTime", e.target.value);
-                        }}
+                        onChange={(e) =>
+                          updateFilter("endTime", e.target.value)
+                        }
                       >
                         <option value="all">All</option>
                         <option value="today">Today</option>
@@ -1468,18 +1436,16 @@ export default function MinePage() {
                     </div>
 
                     {/* Time Remaining Filter */}
-                    <div onClick={(e) => e.stopPropagation()}>
+                    <div>
                       <label className="block text-xs text-gray-400 mb-1">
                         Time Remaining
                       </label>
                       <select
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-white"
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         value={filters.timeRemaining}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          updateFilter("timeRemaining", e.target.value);
-                        }}
+                        onChange={(e) =>
+                          updateFilter("timeRemaining", e.target.value)
+                        }
                       >
                         <option value="all">All</option>
                         <option value="less-than-1-hour">{"< 1 Hour"}</option>
@@ -1488,20 +1454,23 @@ export default function MinePage() {
                     </div>
 
                     {/* Apply/Reset Buttons */}
-                    <div
-                      className="flex justify-end space-x-2 mt-3"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="flex justify-end space-x-2 mt-3">
                       <button
                         className="px-3 py-1 text-xs bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600"
                         onClick={(e) => {
-                          e.stopPropagation();
+                          // Completely prevent any event propagation
                           e.preventDefault();
+                          e.stopPropagation();
+
+                          // Call the reset function directly
                           setFilters({
                             status: "all",
                             endTime: "all",
                             timeRemaining: "all",
                           });
+
+                          // Do not close the filter menu
+                          e.nativeEvent.stopImmediatePropagation();
                         }}
                       >
                         Reset Filters
@@ -1509,9 +1478,8 @@ export default function MinePage() {
                       <button
                         className="px-3 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700"
                         onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          toggleFilterMenu();
+                          e.stopPropagation(); // Prevent bubbling to modal backdrop
+                          applyFilter();
                         }}
                       >
                         Apply
@@ -1520,29 +1488,19 @@ export default function MinePage() {
                   </div>
                 </div>
               </div>
-            </>
+            </div>
           )}
 
-          {/* Sort Dropdown Menu with proper event isolation */}
+          {/* Sort Dropdown Menu - completely revised implementation */}
           {showSortMenu && (
-            <>
-              {/* Invisible overlay that only handles outside clicks */}
+            <div
+              className="fixed inset-0 bg-opacity-50 z-40 flex items-start justify-end p-4 modal-backdrop"
+              onClick={closeSortMenu}
+            >
+              {/* Sort Modal - fully isolated from any outside events */}
               <div
-                className="fixed top-0 left-0 right-0 bottom-0 z-40"
-                onClick={toggleSortMenu}
-              />
-              {/* Completely isolated menu with no event bubbling */}
-              <div
-                className={`fixed right-4 top-30 w-64 bg-gray-800 rounded-md shadow-lg border border-gray-700 z-50
-                  transition-all duration-300 ease-out ${
-                    sortAnimationState === "opening"
-                      ? "opacity-0 transform -translate-y-2 scale-95"
-                      : sortAnimationState === "closing"
-                      ? "opacity-0 transform -translate-y-2 scale-95"
-                      : "opacity-100 transform translate-y-0 scale-100"
-                  }`}
-                style={{ maxWidth: "95vw" }}
-                onClick={(e) => e.stopPropagation()}
+                ref={sortMenuRef}
+                className="w-64 bg-gray-800 rounded-md shadow-lg border border-gray-700 z-50 animate-dropdown mt-25 mr-0"
               >
                 <div className="p-3" onClick={(e) => e.stopPropagation()}>
                   <div
@@ -1554,11 +1512,7 @@ export default function MinePage() {
                     </h4>
                     <button
                       className="text-gray-400 hover:text-white"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleSortMenu();
-                      }}
+                      onClick={closeSortMenu}
                     >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -1589,11 +1543,7 @@ export default function MinePage() {
                     ].map((sort) => (
                       <button
                         key={sort.key}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          toggleSort(sort.key);
-                        }}
+                        onClick={() => toggleSort(sort.key)}
                         className={`flex items-center justify-between w-full px-3 py-1.5 text-sm rounded-md ${
                           sortConfig.key === sort.key
                             ? "bg-blue-600 text-white"
@@ -1616,12 +1566,7 @@ export default function MinePage() {
                     >
                       <button
                         className="w-full px-3 py-1.5 text-xs bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setSortConfig({ key: "none", direction: "asc" });
-                          toggleSortMenu();
-                        }}
+                        onClick={resetSort}
                       >
                         Reset Sort
                       </button>
@@ -1629,7 +1574,7 @@ export default function MinePage() {
                   </div>
                 </div>
               </div>
-            </>
+            </div>
           )}
 
           {/* Custom notification area - showing only the most recent notification of each type */}
@@ -1848,6 +1793,23 @@ export default function MinePage() {
           )}
         </div>
       </div>
+
+      <style jsx>{`
+        @keyframes dropdown {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .animate-dropdown {
+          animation: dropdown 0.2s ease-out forwards;
+        }
+      `}</style>
     </div>
   );
 }
