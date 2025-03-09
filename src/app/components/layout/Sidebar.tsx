@@ -3,17 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  IconSearch,
   IconUsers,
-  IconChevronDown,
   IconChevronRight,
   IconChevronLeft,
   IconArrowRight,
-  IconPick,
   IconHome,
   IconUser,
-  IconPickaxe,
-  IconDatabase,
+  IconPick,
+  IconMenu,
 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { getAllAccounts, getCacheData } from "@/lib/db";
@@ -50,7 +47,6 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [accounts, setAccounts] = useState<AccountWithUsername[]>([]);
-  const [isAccountsOpen, setIsAccountsOpen] = useState(true);
   const [piPrice, setPiPrice] = useState<number | null>(null);
   const [isExpanded, setIsExpanded] = useState(true); // Default to true for server rendering
   const [isLoading, setIsLoading] = useState(false);
@@ -412,7 +408,27 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   return (
     <>
-      {/* Collapsed sidebar button - use client-side only rendering with useEffect */}
+      {/* Mobile sidebar toggle button - always visible on mobile */}
+      <div className="fixed top-4 left-4 z-50 flex md:hidden">
+        <button
+          onClick={onClose} // When closed, we use onClose to ensure parent component knows to update isOpen state
+          className="bg-gray-700 text-white p-2 rounded-md hover:bg-gray-600 transition-all duration-300 w-10 h-10 flex items-center justify-center"
+          aria-label="Toggle sidebar"
+        >
+          <IconArrowRight className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Backdrop overlay - only visible when sidebar is open on mobile */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-opacity-50 z-40 md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        ></div>
+      )}
+
+      {/* Collapsed sidebar button - only visible on desktop when sidebar is collapsed */}
       {!isExpanded && (
         <div className="fixed top-16 left-0 z-40 hidden md:flex md:items-center md:justify-center md:w-20 md:mt-4">
           <button
@@ -420,18 +436,47 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             className="bg-gray-700 text-white p-2 rounded-md hover:bg-gray-600 transition-all duration-300 w-10 h-10 flex items-center justify-center"
             aria-label="Expand sidebar"
           >
-            <IconArrowRight className="w-5 h-5" />
+            <IconMenu className="w-5 h-5" />
           </button>
         </div>
       )}
 
       <div
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col overflow-y-auto overflow-x-hidden bg-white shadow-lg transition-all duration-300 dark:bg-gray-900 ${
-          isOpen ? "w-full" : isExpanded ? "w-64" : "w-20"
-        } ${isOpen ? "" : "border-r border-gray-200 dark:border-gray-800"}`}
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col overflow-y-auto overflow-x-hidden bg-gray-800 shadow-lg transition-all duration-300 ${
+          isOpen
+            ? "w-2/5" // 40% width when opened on mobile instead of full width
+            : isExpanded
+            ? "md:w-64 w-0" // Hidden on mobile, 64px on desktop when expanded
+            : "md:w-20 w-0" // Hidden on mobile, 20px on desktop when collapsed
+        } ${isOpen ? "border-r border-gray-700" : "border-r border-gray-700"}`}
       >
-        {/* Toggle button - visible in expanded desktop mode */}
-        <div className="absolute top-5 -right-2 z-50 flex space-x-2">
+        {/* Mobile close button - only visible when sidebar is open on mobile */}
+        {isOpen && (
+          <div className="absolute top-4 right-4 md:hidden">
+            <button
+              onClick={onClose}
+              className="bg-gray-700 text-white p-2 rounded-md hover:bg-gray-600 transition-all duration-300 w-8 h-8 flex items-center justify-center"
+              aria-label="Close sidebar"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Toggle button - only visible in desktop mode when sidebar is visible */}
+        <div className="absolute top-5 -right-2 z-50 hidden md:flex space-x-2">
           <button
             className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 shadow-md"
             onClick={toggleSidebar}
@@ -446,8 +491,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
 
         {/* Header */}
-        <div className="text-xl font-bold mb-6 text-center pt-6 px-2">
-          {isExpanded ? (
+        <div className="text-xl font-bold mb-6 text-center pt-6 px-2 text-white">
+          {isExpanded || isOpen ? (
             <span className="text-ellipsis overflow-hidden whitespace-nowrap">
               Pi Account Checker
             </span>
@@ -466,19 +511,18 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               href={item.path}
               className={`flex items-center px-4 py-2 text-sm font-medium rounded-md transition-colors ${
                 isActive(item.path)
-                  ? "bg-gray-100 text-blue-600 dark:bg-gray-700 dark:text-blue-400"
-                  : "text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                  ? "bg-gray-700 text-blue-400"
+                  : "text-gray-300 hover:bg-gray-700 hover:text-white"
               }`}
             >
               <item.icon
                 className={`mr-3 h-5 w-5 ${
-                  isActive(item.path)
-                    ? "text-blue-500 dark:text-blue-400"
-                    : "text-gray-400 dark:text-gray-500"
+                  isActive(item.path) ? "text-blue-400" : "text-gray-300"
                 }`}
               />
-              {isExpanded ? (
-                <span className="truncate">{item.label}</span>
+              {/* Show labels when sidebar is expanded on desktop OR when sidebar is open on mobile */}
+              {isExpanded || isOpen ? (
+                <span className="truncate text-gray-100">{item.label}</span>
               ) : null}
             </Link>
           ))}
@@ -532,14 +576,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           </div>
         )}
       </div>
-
-      {/* Optional semi-transparent backdrop on mobile */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-opacity-60 backdrop-blur-[4px] z-40 md:hidden"
-          onClick={onClose}
-        />
-      )}
     </>
   );
 }
